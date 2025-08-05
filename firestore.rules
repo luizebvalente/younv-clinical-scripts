@@ -1,0 +1,123 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper function to get user data
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+    
+    // Helper function to check if user is authenticated
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    // Helper function to check user role
+    function hasRole(role) {
+      return isAuthenticated() && getUserData().role == role;
+    }
+    
+    // Helper function to check if user has admin privileges
+    function isAdmin() {
+      return isAuthenticated() && getUserData().role in ['admin', 'super_admin'];
+    }
+    
+    // Helper function to check if user is super admin
+    function isSuperAdmin() {
+      return hasRole('super_admin');
+    }
+    
+    // Helper function to check if user belongs to clinic
+    function belongsToClinic(clinicId) {
+      return isAuthenticated() && (getUserData().clinicId == clinicId || isSuperAdmin());
+    }
+    
+    // System collections (initialization and settings)
+    match /system/{document} {
+      allow read: if isAuthenticated();
+      allow write: if false; // Only through admin SDK or initialization service
+    }
+    
+    // Categories collection (read-only for users)
+    match /categories/{categoryId} {
+      allow read: if isAuthenticated();
+      allow write: if isSuperAdmin(); // Only super admin can modify categories
+    }
+    
+    // Users collection
+    match /users/{userId} {
+      allow read: if isAuthenticated() && 
+        (request.auth.uid == userId || isAdmin());
+      allow write: if isAuthenticated() && 
+        (request.auth.uid == userId || isAdmin());
+      allow create: if isAdmin();
+      allow delete: if isSuperAdmin();
+    }
+    
+    // Clinics collection
+    match /clinics/{clinicId} {
+      allow read: if isAuthenticated() && 
+        (belongsToClinic(clinicId) || isSuperAdmin());
+      allow write: if isAdmin() && 
+        (belongsToClinic(clinicId) || isSuperAdmin());
+      allow create: if isSuperAdmin();
+      allow delete: if isSuperAdmin();
+    }
+    
+    // Scripts collection
+    match /scripts/{scriptId} {
+      allow read: if isAuthenticated() && 
+        (belongsToClinic(resource.data.clinicId) || isSuperAdmin());
+      allow write: if isAuthenticated() && 
+        isAdmin() && 
+        (belongsToClinic(resource.data.clinicId) || isSuperAdmin());
+      allow create: if isAuthenticated() && 
+        isAdmin() && 
+        (belongsToClinic(request.resource.data.clinicId) || isSuperAdmin());
+      allow delete: if isAuthenticated() && 
+        isAdmin() && 
+        (belongsToClinic(resource.data.clinicId) || isSuperAdmin());
+    }
+    
+    // Analytics and usage tracking
+    match /analytics/{document} {
+      allow read: if isAdmin();
+      allow write: if isAuthenticated(); // Users can log usage
+    }
+    
+    // Audit logs
+    match /audit_logs/{logId} {
+      allow read: if isSuperAdmin();
+      allow write: if false; // Only through server-side functions
+    }
+    
+    // User sessions and activity
+    match /user_sessions/{sessionId} {
+      allow read, write: if isAuthenticated() && 
+        resource.data.userId == request.auth.uid;
+    }
+    
+    // Notifications
+    match /notifications/{notificationId} {
+      allow read: if isAuthenticated() && 
+        (resource.data.userId == request.auth.uid || 
+         belongsToClinic(resource.data.clinicId));
+      allow write: if isAdmin();
+    }
+    
+    // Templates (global script templates)
+    match /templates/{templateId} {
+      allow read: if isAuthenticated();
+      allow write: if isSuperAdmin();
+    }
+    
+    // Feedback and support
+    match /feedback/{feedbackId} {
+      allow read: if isAuthenticated() && 
+        (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated() && 
+        resource.data.userId == request.auth.uid;
+    }
+  }
+}
+
