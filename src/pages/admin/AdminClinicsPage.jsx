@@ -14,7 +14,7 @@ import {
   Calendar
 } from 'lucide-react';
 import Modal from '../../components/ui/Modal';
-import Toast from '../../components/ui/Toast';
+import { useToast } from '../../components/ui/Toast';
 
 const AdminClinicsPage = () => {
   const { hasPermission } = useAuth();
@@ -31,7 +31,9 @@ const AdminClinicsPage = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [editingClinic, setEditingClinic] = useState(null);
-  const [toast, setToast] = useState(null);
+  
+  // Using the existing toast hook
+  const { showSuccess, showError } = useToast();
 
   // Check permissions
   if (!hasPermission('super_admin')) {
@@ -57,40 +59,55 @@ const AdminClinicsPage = () => {
   );
 
   const handleCreateClinic = () => {
+    console.log('🏥 Abrindo modal para criar nova clínica');
     setEditingClinic(null);
     setShowModal(true);
   };
 
   const handleEditClinic = (clinic) => {
+    console.log('✏️ Abrindo modal para editar clínica:', clinic.name);
     setEditingClinic(clinic);
     setShowModal(true);
+  };
+
+  const handleCloseModal = () => {
+    console.log('❌ Fechando modal');
+    setShowModal(false);
+    setEditingClinic(null);
+  };
+
+  const handleSaveClinic = async (clinicData) => {
+    try {
+      console.log('💾 Salvando clínica:', clinicData);
+      
+      if (editingClinic) {
+        await updateClinic(editingClinic.id, clinicData);
+        showSuccess(`Clínica "${clinicData.name}" atualizada com sucesso!`);
+      } else {
+        await createClinic(clinicData);
+        showSuccess(`Clínica "${clinicData.name}" criada com sucesso!`);
+      }
+      
+      setShowModal(false);
+      setEditingClinic(null);
+    } catch (error) {
+      console.error('❌ Erro ao salvar clínica:', error);
+      showError(error.message);
+    }
   };
 
   const handleToggleStatus = async (clinic) => {
     try {
       if (clinic.isActive) {
         await deactivateClinic(clinic.id);
-        setToast({
-          type: 'success',
-          message: `Clínica ${clinic.name} desativada com sucesso!`
-        });
+        showSuccess(`Clínica "${clinic.name}" desativada com sucesso!`);
       } else {
         await activateClinic(clinic.id);
-        setToast({
-          type: 'success',
-          message: `Clínica ${clinic.name} ativada com sucesso!`
-        });
+        showSuccess(`Clínica "${clinic.name}" ativada com sucesso!`);
       }
     } catch (error) {
-      setToast({
-        type: 'error',
-        message: error.message
-      });
+      showError(error.message);
     }
-  };
-
-  const showToast = (type, message) => {
-    setToast({ type, message });
   };
 
   if (loading) {
@@ -248,14 +265,26 @@ const AdminClinicsPage = () => {
                         <span className="font-medium">Email:</span>
                         {clinic.email}
                       </p>
-                      <p className="flex items-center gap-2">
-                        <span className="font-medium">Telefone:</span>
-                        {clinic.phone}
-                      </p>
-                      <p className="flex items-center gap-2">
-                        <span className="font-medium">Endereço:</span>
-                        {clinic.address}
-                      </p>
+                      {clinic.phone && (
+                        <p className="flex items-center gap-2">
+                          <span className="font-medium">Telefone:</span>
+                          {clinic.phone}
+                        </p>
+                      )}
+                      {clinic.address && (
+                        <p className="flex items-center gap-2">
+                          <span className="font-medium">Endereço:</span>
+                          {clinic.address}
+                        </p>
+                      )}
+                      {clinic.createdAt && (
+                        <p className="text-xs text-gray-500">
+                          Criada em: {clinic.createdAt.toDate ? 
+                            clinic.createdAt.toDate().toLocaleDateString('pt-BR') : 
+                            new Date(clinic.createdAt).toLocaleDateString('pt-BR')
+                          }
+                        </p>
+                      )}
                     </div>
                   </div>
                   
@@ -289,31 +318,10 @@ const AdminClinicsPage = () => {
       {/* Modal for Create/Edit */}
       {showModal && (
         <ClinicModal
+          isOpen={showModal}
           clinic={editingClinic}
-          onClose={() => setShowModal(false)}
-          onSave={async (clinicData) => {
-            try {
-              if (editingClinic) {
-                await updateClinic(editingClinic.id, clinicData);
-                showToast('success', 'Clínica atualizada com sucesso!');
-              } else {
-                await createClinic(clinicData);
-                showToast('success', 'Clínica criada com sucesso!');
-              }
-              setShowModal(false);
-            } catch (error) {
-              showToast('error', error.message);
-            }
-          }}
-        />
-      )}
-
-      {/* Toast */}
-      {toast && (
-        <Toast
-          type={toast.type}
-          message={toast.message}
-          onClose={() => setToast(null)}
+          onClose={handleCloseModal}
+          onSave={handleSaveClinic}
         />
       )}
     </div>
@@ -321,7 +329,7 @@ const AdminClinicsPage = () => {
 };
 
 // Modal component for creating/editing clinics
-const ClinicModal = ({ clinic, onClose, onSave }) => {
+const ClinicModal = ({ isOpen, clinic, onClose, onSave }) => {
   const [formData, setFormData] = useState({
     name: clinic?.name || '',
     email: clinic?.email || '',
@@ -333,13 +341,74 @@ const ClinicModal = ({ clinic, onClose, onSave }) => {
     }
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [errors, setErrors] = useState({});
+
+  // Reset form when clinic changes
+  React.useEffect(() => {
+    if (clinic) {
+      setFormData({
+        name: clinic.name || '',
+        email: clinic.email || '',
+        phone: clinic.phone || '',
+        address: clinic.address || '',
+        settings: {
+          theme: clinic.settings?.theme || 'blue',
+          logo: clinic.settings?.logo || null
+        }
+      });
+    } else {
+      setFormData({
+        name: '',
+        email: '',
+        phone: '',
+        address: '',
+        settings: {
+          theme: 'blue',
+          logo: null
+        }
+      });
+    }
+    setErrors({});
+  }, [clinic]);
+
+  const validateForm = () => {
+    const newErrors = {};
+
+    if (!formData.name.trim()) {
+      newErrors.name = 'Nome da clínica é obrigatório';
+    }
+
+    if (!formData.email.trim()) {
+      newErrors.email = 'Email é obrigatório';
+    } else if (!/\S+@\S+\.\S+/.test(formData.email)) {
+      newErrors.email = 'Email deve ter um formato válido';
+    }
+
+    if (!formData.phone.trim()) {
+      newErrors.phone = 'Telefone é obrigatório';
+    }
+
+    if (!formData.address.trim()) {
+      newErrors.address = 'Endereço é obrigatório';
+    }
+
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    
+    if (!validateForm()) {
+      return;
+    }
+
     setIsSubmitting(true);
     
     try {
       await onSave(formData);
+    } catch (error) {
+      console.error('Erro ao salvar clínica:', error);
     } finally {
       setIsSubmitting(false);
     }
@@ -361,10 +430,23 @@ const ClinicModal = ({ clinic, onClose, onSave }) => {
         [field]: value
       }));
     }
+
+    // Clear error when user starts typing
+    if (errors[field]) {
+      setErrors(prev => ({
+        ...prev,
+        [field]: ''
+      }));
+    }
   };
 
   return (
-    <Modal onClose={onClose} title={clinic ? 'Editar Clínica' : 'Nova Clínica'}>
+    <Modal 
+      isOpen={isOpen}
+      onClose={onClose} 
+      title={clinic ? 'Editar Clínica' : 'Nova Clínica'}
+      size="md"
+    >
       <form onSubmit={handleSubmit} className="space-y-6">
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -372,12 +454,14 @@ const ClinicModal = ({ clinic, onClose, onSave }) => {
           </label>
           <input
             type="text"
-            required
             value={formData.name}
             onChange={(e) => handleChange('name', e.target.value)}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
+              errors.name ? 'border-red-500' : 'border-gray-300'
+            }`}
             placeholder="Ex: Clínica São Lucas"
           />
+          {errors.name && <p className="mt-1 text-sm text-red-600">{errors.name}</p>}
         </div>
 
         <div>
@@ -386,12 +470,14 @@ const ClinicModal = ({ clinic, onClose, onSave }) => {
           </label>
           <input
             type="email"
-            required
             value={formData.email}
             onChange={(e) => handleChange('email', e.target.value)}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
+              errors.email ? 'border-red-500' : 'border-gray-300'
+            }`}
             placeholder="contato@clinica.com.br"
           />
+          {errors.email && <p className="mt-1 text-sm text-red-600">{errors.email}</p>}
         </div>
 
         <div>
@@ -400,12 +486,14 @@ const ClinicModal = ({ clinic, onClose, onSave }) => {
           </label>
           <input
             type="tel"
-            required
             value={formData.phone}
             onChange={(e) => handleChange('phone', e.target.value)}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
+              errors.phone ? 'border-red-500' : 'border-gray-300'
+            }`}
             placeholder="(11) 3456-7890"
           />
+          {errors.phone && <p className="mt-1 text-sm text-red-600">{errors.phone}</p>}
         </div>
 
         <div>
@@ -413,13 +501,15 @@ const ClinicModal = ({ clinic, onClose, onSave }) => {
             Endereço *
           </label>
           <textarea
-            required
             value={formData.address}
             onChange={(e) => handleChange('address', e.target.value)}
             rows={3}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
+              errors.address ? 'border-red-500' : 'border-gray-300'
+            }`}
             placeholder="Rua das Flores, 123 - São Paulo, SP"
           />
+          {errors.address && <p className="mt-1 text-sm text-red-600">{errors.address}</p>}
         </div>
 
         <div>
@@ -442,15 +532,19 @@ const ClinicModal = ({ clinic, onClose, onSave }) => {
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+            disabled={isSubmitting}
+            className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors disabled:opacity-50"
           >
             Cancelar
           </button>
           <button
             type="submit"
             disabled={isSubmitting}
-            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors disabled:opacity-50"
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors disabled:opacity-50 flex items-center gap-2"
           >
+            {isSubmitting && (
+              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+            )}
             {isSubmitting ? 'Salvando...' : (clinic ? 'Atualizar' : 'Criar')}
           </button>
         </div>
@@ -460,4 +554,3 @@ const ClinicModal = ({ clinic, onClose, onSave }) => {
 };
 
 export default AdminClinicsPage;
-
