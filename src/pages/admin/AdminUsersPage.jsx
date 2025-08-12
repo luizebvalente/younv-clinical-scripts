@@ -709,11 +709,4 @@ const UserModal = ({ user, clinics, currentUserRole, currentUserClinicId, onClos
   );
 };
 
-export default AdminUsersPage;={onClose}
-              disabled={isSubmitting}
-              className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors disabled:opacity-50"
-            >
-              Cancelar
-            </button>
-            <button
-              onClick
+export default AdminUsersPage;
