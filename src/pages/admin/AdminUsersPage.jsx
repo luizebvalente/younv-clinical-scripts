@@ -11,21 +11,25 @@ import {
   Shield,
   Building2,
   Mail,
-  Phone
+  Phone,
+  Save,
+  X,
+  AlertCircle,
+  CheckCircle
 } from 'lucide-react';
-import Modal from '../../components/ui/Modal';
-import Toast from '../../components/ui/Toast';
 import userService from '../../services/userService';
 import { useClinics } from '../../hooks/useClinics';
 import { USER_ROLES } from '../../types';
 
 const AdminUsersPage = () => {
   const { hasPermission, userData } = useAuth();
-  const { clinics } = useClinics();
+  const { clinics, loading: clinicsLoading } = useClinics();
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
+  const [selectedClinic, setSelectedClinic] = useState('');
+  const [selectedRole, setSelectedRole] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [editingUser, setEditingUser] = useState(null);
   const [toast, setToast] = useState(null);
@@ -64,7 +68,13 @@ const AdminUsersPage = () => {
         result = await userService.getUsersByClinic(userData.clinicId);
       }
       
-      setUsers(result);
+      // Enriquecer usuários com nome da clínica
+      const enrichedUsers = result.map(user => ({
+        ...user,
+        clinicName: clinics.find(c => c.id === user.clinicId)?.name || 'Clínica não encontrada'
+      }));
+      
+      setUsers(enrichedUsers);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -72,11 +82,15 @@ const AdminUsersPage = () => {
     }
   };
 
-  // Filter users based on search
-  const filteredUsers = users.filter(user =>
-    user.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    user.email.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  // Filter users based on search and filters
+  const filteredUsers = users.filter(user => {
+    const matchesSearch = user.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         user.email.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesClinic = !selectedClinic || user.clinicId === selectedClinic;
+    const matchesRole = !selectedRole || user.role === selectedRole;
+    
+    return matchesSearch && matchesClinic && matchesRole;
+  });
 
   const handleCreateUser = () => {
     setEditingUser(null);
@@ -92,23 +106,14 @@ const AdminUsersPage = () => {
     try {
       if (user.isActive) {
         await userService.deactivateUser(user.id);
-        setToast({
-          type: 'success',
-          message: `Usuário ${user.name} desativado com sucesso!`
-        });
+        showToast('success', `Usuário ${user.name} desativado com sucesso!`);
       } else {
         await userService.activateUser(user.id);
-        setToast({
-          type: 'success',
-          message: `Usuário ${user.name} ativado com sucesso!`
-        });
+        showToast('success', `Usuário ${user.name} ativado com sucesso!`);
       }
       await loadUsers();
     } catch (error) {
-      setToast({
-        type: 'error',
-        message: error.message
-      });
+      showToast('error', error.message);
     }
   };
 
@@ -119,21 +124,16 @@ const AdminUsersPage = () => {
 
     try {
       await userService.deleteUser(user.id);
-      setToast({
-        type: 'success',
-        message: `Usuário ${user.name} excluído com sucesso!`
-      });
+      showToast('success', `Usuário ${user.name} excluído com sucesso!`);
       await loadUsers();
     } catch (error) {
-      setToast({
-        type: 'error',
-        message: error.message
-      });
+      showToast('error', error.message);
     }
   };
 
   const showToast = (type, message) => {
     setToast({ type, message });
+    setTimeout(() => setToast(null), 5000);
   };
 
   const getRoleLabel = (role) => {
@@ -154,12 +154,41 @@ const AdminUsersPage = () => {
     return colors[role] || 'bg-gray-100 text-gray-800';
   };
 
-  const getClinicName = (clinicId) => {
-    const clinic = clinics.find(c => c.id === clinicId);
-    return clinic ? clinic.name : 'N/A';
+  const getClinicStats = () => {
+    const stats = {};
+    
+    // Se for super admin, mostrar stats de todas as clínicas
+    if (hasPermission('super_admin')) {
+      clinics.forEach(clinic => {
+        const clinicUsers = users.filter(u => u.clinicId === clinic.id);
+        stats[clinic.id] = {
+          total: clinicUsers.length,
+          active: clinicUsers.filter(u => u.isActive).length,
+          admins: clinicUsers.filter(u => u.role === USER_ROLES.ADMIN).length,
+          users: clinicUsers.filter(u => u.role === USER_ROLES.USER).length
+        };
+      });
+    } else {
+      // Se for admin comum, mostrar apenas da sua clínica
+      const clinic = clinics.find(c => c.id === userData.clinicId);
+      if (clinic) {
+        const clinicUsers = users.filter(u => u.clinicId === clinic.id);
+        stats[clinic.id] = {
+          total: clinicUsers.length,
+          active: clinicUsers.filter(u => u.isActive).length,
+          admins: clinicUsers.filter(u => u.role === USER_ROLES.ADMIN).length,
+          users: clinicUsers.filter(u => u.role === USER_ROLES.USER).length
+        };
+      }
+    }
+    
+    return stats;
   };
 
-  if (loading) {
+  const clinicStats = getClinicStats();
+  const displayClinics = hasPermission('super_admin') ? clinics : clinics.filter(c => c.id === userData.clinicId);
+
+  if (loading || clinicsLoading) {
     return (
       <div className="p-8">
         <div className="animate-pulse">
@@ -186,7 +215,7 @@ const AdminUsersPage = () => {
             </h1>
             <p className="text-gray-600 mt-2">
               {hasPermission('super_admin') 
-                ? 'Gerencie todos os usuários do sistema'
+                ? 'Gerencie todos os usuários do sistema por clínica'
                 : 'Gerencie os usuários da sua clínica'
               }
             </p>
@@ -200,75 +229,109 @@ const AdminUsersPage = () => {
           </button>
         </div>
 
-        {/* Search */}
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
-          <input
-            type="text"
-            placeholder="Buscar usuários por nome ou email..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-          />
+        {/* Filtros */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
+            <input
+              type="text"
+              placeholder="Buscar usuários por nome ou email..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            />
+          </div>
+
+          {hasPermission('super_admin') && (
+            <select
+              value={selectedClinic}
+              onChange={(e) => setSelectedClinic(e.target.value)}
+              className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            >
+              <option value="">Todas as clínicas</option>
+              {clinics.map(clinic => (
+                <option key={clinic.id} value={clinic.id}>
+                  {clinic.name}
+                </option>
+              ))}
+            </select>
+          )}
+
+          <select
+            value={selectedRole}
+            onChange={(e) => setSelectedRole(e.target.value)}
+            className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          >
+            <option value="">Todas as funções</option>
+            <option value={USER_ROLES.USER}>Usuários</option>
+            <option value={USER_ROLES.ADMIN}>Administradores</option>
+            {hasPermission('super_admin') && (
+              <option value={USER_ROLES.SUPER_ADMIN}>Super Admins</option>
+            )}
+          </select>
         </div>
       </div>
 
       {/* Error Message */}
       {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-6">
+        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-6 flex items-center gap-2">
+          <AlertCircle className="w-5 h-5" />
           {error}
         </div>
       )}
 
-      {/* Statistics */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-        <div className="bg-white p-6 rounded-lg shadow-sm border">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-gray-600">Total de Usuários</p>
-              <p className="text-2xl font-bold text-gray-900">{users.length}</p>
-            </div>
-            <Users className="w-8 h-8 text-blue-600" />
-          </div>
+      {/* Toast */}
+      {toast && (
+        <div className={`fixed top-4 right-4 z-50 px-6 py-3 rounded-lg shadow-lg flex items-center gap-2 ${
+          toast.type === 'success' 
+            ? 'bg-green-50 border border-green-200 text-green-800' 
+            : 'bg-red-50 border border-red-200 text-red-800'
+        }`}>
+          {toast.type === 'success' ? <CheckCircle className="w-5 h-5" /> : <AlertCircle className="w-5 h-5" />}
+          {toast.message}
         </div>
-        <div className="bg-white p-6 rounded-lg shadow-sm border">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-gray-600">Usuários Ativos</p>
-              <p className="text-2xl font-bold text-green-600">
-                {users.filter(u => u.isActive).length}
-              </p>
+      )}
+
+      {/* Estatísticas por Clínica */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
+        {displayClinics.map(clinic => {
+          const stats = clinicStats[clinic.id] || { total: 0, active: 0, admins: 0, users: 0 };
+          return (
+            <div key={clinic.id} className="bg-white p-6 rounded-lg shadow-sm border">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+                  <Building2 className="w-5 h-5 text-blue-600" />
+                  {clinic.name}
+                </h3>
+              </div>
+              <div className="grid grid-cols-2 gap-4 text-sm">
+                <div>
+                  <p className="text-gray-600">Total</p>
+                  <p className="text-2xl font-bold text-blue-600">{stats.total}</p>
+                </div>
+                <div>
+                  <p className="text-gray-600">Ativos</p>
+                  <p className="text-2xl font-bold text-green-600">{stats.active}</p>
+                </div>
+                <div>
+                  <p className="text-gray-600">Admins</p>
+                  <p className="text-lg font-semibold text-purple-600">{stats.admins}</p>
+                </div>
+                <div>
+                  <p className="text-gray-600">Usuários</p>
+                  <p className="text-lg font-semibold text-blue-600">{stats.users}</p>
+                </div>
+              </div>
             </div>
-            <Eye className="w-8 h-8 text-green-600" />
-          </div>
-        </div>
-        <div className="bg-white p-6 rounded-lg shadow-sm border">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-gray-600">Administradores</p>
-              <p className="text-2xl font-bold text-purple-600">
-                {users.filter(u => u.role === USER_ROLES.ADMIN || u.role === USER_ROLES.SUPER_ADMIN).length}
-              </p>
-            </div>
-            <Shield className="w-8 h-8 text-purple-600" />
-          </div>
-        </div>
-        <div className="bg-white p-6 rounded-lg shadow-sm border">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-gray-600">Resultados</p>
-              <p className="text-2xl font-bold text-gray-900">{filteredUsers.length}</p>
-            </div>
-            <Search className="w-8 h-8 text-gray-600" />
-          </div>
-        </div>
+          );
+        })}
       </div>
 
-      {/* Users List */}
+      {/* Lista de Usuários */}
       <div className="bg-white rounded-lg shadow-sm border">
         <div className="p-6 border-b border-gray-200">
           <h2 className="text-lg font-semibold text-gray-900">
-            Lista de Usuários ({filteredUsers.length})
+            Usuários Cadastrados ({filteredUsers.length})
           </h2>
         </div>
         
@@ -276,15 +339,15 @@ const AdminUsersPage = () => {
           <div className="p-8 text-center">
             <Users className="w-16 h-16 text-gray-300 mx-auto mb-4" />
             <h3 className="text-lg font-medium text-gray-900 mb-2">
-              {searchTerm ? 'Nenhum usuário encontrado' : 'Nenhum usuário cadastrado'}
+              {searchTerm || selectedClinic || selectedRole ? 'Nenhum usuário encontrado' : 'Nenhum usuário cadastrado'}
             </h3>
             <p className="text-gray-600 mb-4">
-              {searchTerm 
-                ? 'Tente ajustar os termos de busca'
-                : 'Comece criando seu primeiro usuário'
+              {searchTerm || selectedClinic || selectedRole 
+                ? 'Tente ajustar os filtros de busca'
+                : 'Comece criando o primeiro usuário'
               }
             </p>
-            {!searchTerm && (
+            {!searchTerm && !selectedClinic && !selectedRole && (
               <button
                 onClick={handleCreateUser}
                 className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 mx-auto transition-colors"
@@ -323,7 +386,7 @@ const AdminUsersPage = () => {
                       {hasPermission('super_admin') && (
                         <p className="flex items-center gap-2">
                           <Building2 className="w-4 h-4" />
-                          {getClinicName(user.clinicId)}
+                          {user.clinicName}
                         </p>
                       )}
                       {user.lastLogin && (
@@ -370,12 +433,13 @@ const AdminUsersPage = () => {
         )}
       </div>
 
-      {/* Modal for Create/Edit */}
+      {/* Modal para Criar/Editar */}
       {showModal && (
         <UserModal
           user={editingUser}
           clinics={clinics}
           currentUserRole={userData.role}
+          currentUserClinicId={userData.clinicId}
           onClose={() => setShowModal(false)}
           onSave={async (userData) => {
             try {
@@ -394,41 +458,68 @@ const AdminUsersPage = () => {
           }}
         />
       )}
-
-      {/* Toast */}
-      {toast && (
-        <Toast
-          type={toast.type}
-          message={toast.message}
-          onClose={() => setToast(null)}
-        />
-      )}
     </div>
   );
 };
 
 // Modal component for creating/editing users
-const UserModal = ({ user, clinics, currentUserRole, onClose, onSave }) => {
+const UserModal = ({ user, clinics, currentUserRole, currentUserClinicId, onClose, onSave }) => {
   const [formData, setFormData] = useState({
     name: user?.name || '',
     email: user?.email || '',
     role: user?.role || USER_ROLES.USER,
-    clinicId: user?.clinicId || '',
+    clinicId: user?.clinicId || (currentUserRole === USER_ROLES.ADMIN ? currentUserClinicId : ''),
     password: '',
     confirmPassword: ''
   });
+  const [errors, setErrors] = useState({});
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    
-    if (!user && formData.password !== formData.confirmPassword) {
-      alert('As senhas não coincidem');
-      return;
+  const validateForm = () => {
+    const newErrors = {};
+
+    if (!formData.name.trim()) {
+      newErrors.name = 'Nome é obrigatório';
     }
 
-    if (!user && formData.password.length < 6) {
-      alert('A senha deve ter pelo menos 6 caracteres');
+    if (!formData.email.trim()) {
+      newErrors.email = 'Email é obrigatório';
+    } else if (!/\S+@\S+\.\S+/.test(formData.email)) {
+      newErrors.email = 'Email deve ter um formato válido';
+    }
+
+    if (!formData.clinicId) {
+      newErrors.clinicId = 'Clínica é obrigatória';
+    }
+
+    // Validação de senha para novos usuários
+    if (!user) {
+      if (!formData.password) {
+        newErrors.password = 'Senha é obrigatória';
+      } else if (formData.password.length < 6) {
+        newErrors.password = 'Senha deve ter pelo menos 6 caracteres';
+      }
+
+      if (formData.password !== formData.confirmPassword) {
+        newErrors.confirmPassword = 'Senhas não coincidem';
+      }
+    } else if (formData.password) {
+      // Validação de senha para usuários existentes (opcional)
+      if (formData.password.length < 6) {
+        newErrors.password = 'Senha deve ter pelo menos 6 caracteres';
+      }
+
+      if (formData.password !== formData.confirmPassword) {
+        newErrors.confirmPassword = 'Senhas não coincidem';
+      }
+    }
+
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
+  const handleSubmit = async () => {
+    if (!validateForm()) {
       return;
     }
 
@@ -438,11 +529,9 @@ const UserModal = ({ user, clinics, currentUserRole, onClose, onSave }) => {
       const userData = { ...formData };
       delete userData.confirmPassword;
       
-      if (user) {
-        // Don't send password if editing and it's empty
-        if (!userData.password) {
-          delete userData.password;
-        }
+      // Se editando e senha vazia, não incluir senha
+      if (user && !userData.password) {
+        delete userData.password;
       }
       
       await onSave(userData);
@@ -456,130 +545,175 @@ const UserModal = ({ user, clinics, currentUserRole, onClose, onSave }) => {
       ...prev,
       [field]: value
     }));
+
+    // Limpar erro quando usuário começar a digitar
+    if (errors[field]) {
+      setErrors(prev => ({
+        ...prev,
+        [field]: ''
+      }));
+    }
   };
 
   const canEditRole = currentUserRole === USER_ROLES.SUPER_ADMIN;
   const canSelectClinic = currentUserRole === USER_ROLES.SUPER_ADMIN;
+  const availableClinics = canSelectClinic ? clinics : clinics.filter(c => c.id === currentUserClinicId);
 
   return (
-    <Modal onClose={onClose} title={user ? 'Editar Usuário' : 'Novo Usuário'}>
-      <form onSubmit={handleSubmit} className="space-y-6">
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            Nome Completo *
-          </label>
-          <input
-            type="text"
-            required
-            value={formData.name}
-            onChange={(e) => handleChange('name', e.target.value)}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            placeholder="Ex: João Silva"
-          />
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black bg-opacity-50">
+      <div className="bg-white rounded-lg shadow-xl max-w-md w-full max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between p-6 border-b">
+          <h2 className="text-xl font-semibold text-gray-900">
+            {user ? 'Editar Usuário' : 'Novo Usuário'}
+          </h2>
+          <button
+            onClick={onClose}
+            className="p-2 text-gray-400 hover:text-gray-600 rounded-lg"
+          >
+            <X className="w-5 h-5" />
+          </button>
         </div>
 
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            Email *
-          </label>
-          <input
-            type="email"
-            required
-            value={formData.email}
-            onChange={(e) => handleChange('email', e.target.value)}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            placeholder="joao@clinica.com.br"
-          />
-        </div>
-
-        {canEditRole && (
+        <div className="p-6 space-y-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              Função
+              Nome Completo *
             </label>
-            <select
-              value={formData.role}
-              onChange={(e) => handleChange('role', e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            >
-              <option value={USER_ROLES.USER}>Usuário</option>
-              <option value={USER_ROLES.ADMIN}>Administrador</option>
-              <option value={USER_ROLES.SUPER_ADMIN}>Super Administrador</option>
-            </select>
+            <input
+              type="text"
+              value={formData.name}
+              onChange={(e) => handleChange('name', e.target.value)}
+              className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
+                errors.name ? 'border-red-500' : 'border-gray-300'
+              }`}
+              placeholder="Ex: Dr. João Silva"
+            />
+            {errors.name && <p className="mt-1 text-sm text-red-600">{errors.name}</p>}
           </div>
-        )}
 
-        {canSelectClinic && (
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Email *
+            </label>
+            <input
+              type="email"
+              value={formData.email}
+              onChange={(e) => handleChange('email', e.target.value)}
+              className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
+                errors.email ? 'border-red-500' : 'border-gray-300'
+              }`}
+              placeholder="joao@clinica.com.br"
+            />
+            {errors.email && <p className="mt-1 text-sm text-red-600">{errors.email}</p>}
+          </div>
+
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
               Clínica *
             </label>
             <select
-              required
               value={formData.clinicId}
               onChange={(e) => handleChange('clinicId', e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              disabled={!canSelectClinic}
+              className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
+                errors.clinicId ? 'border-red-500' : 'border-gray-300'
+              } ${!canSelectClinic ? 'bg-gray-100' : ''}`}
             >
               <option value="">Selecione uma clínica</option>
-              {clinics.map(clinic => (
+              {availableClinics.map(clinic => (
                 <option key={clinic.id} value={clinic.id}>
                   {clinic.name}
                 </option>
               ))}
             </select>
+            {errors.clinicId && <p className="mt-1 text-sm text-red-600">{errors.clinicId}</p>}
+            {!canSelectClinic && (
+              <p className="mt-1 text-sm text-gray-500">
+                Como administrador, você só pode criar usuários para sua clínica
+              </p>
+            )}
           </div>
-        )}
 
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            {user ? 'Nova Senha (deixe em branco para manter a atual)' : 'Senha *'}
-          </label>
-          <input
-            type="password"
-            required={!user}
-            value={formData.password}
-            onChange={(e) => handleChange('password', e.target.value)}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            placeholder="Mínimo 6 caracteres"
-          />
-        </div>
+          {canEditRole && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Função
+              </label>
+              <select
+                value={formData.role}
+                onChange={(e) => handleChange('role', e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              >
+                <option value={USER_ROLES.USER}>Usuário</option>
+                <option value={USER_ROLES.ADMIN}>Administrador da Clínica</option>
+                <option value={USER_ROLES.SUPER_ADMIN}>Super Administrador</option>
+              </select>
+              <div className="mt-1 text-sm text-gray-500">
+                {formData.role === USER_ROLES.USER && 'Acesso apenas aos scripts da clínica selecionada'}
+                {formData.role === USER_ROLES.ADMIN && 'Controle total da clínica selecionada (criar/editar scripts e usuários)'}
+                {formData.role === USER_ROLES.SUPER_ADMIN && 'Acesso total ao sistema, incluindo todas as clínicas'}
+              </div>
+            </div>
+          )}
 
-        {(!user || formData.password) && (
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              Confirmar Senha *
+              {user ? 'Nova Senha (deixe em branco para manter a atual)' : 'Senha *'}
             </label>
             <input
               type="password"
-              required={!user || formData.password}
-              value={formData.confirmPassword}
-              onChange={(e) => handleChange('confirmPassword', e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              placeholder="Digite a senha novamente"
+              value={formData.password}
+              onChange={(e) => handleChange('password', e.target.value)}
+              className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
+                errors.password ? 'border-red-500' : 'border-gray-300'
+              }`}
+              placeholder="Mínimo 6 caracteres"
             />
+            {errors.password && <p className="mt-1 text-sm text-red-600">{errors.password}</p>}
           </div>
-        )}
 
-        <div className="flex justify-end gap-3 pt-4 border-t">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
-          >
-            Cancelar
-          </button>
-          <button
-            type="submit"
-            disabled={isSubmitting}
-            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors disabled:opacity-50"
-          >
-            {isSubmitting ? 'Salvando...' : (user ? 'Atualizar' : 'Criar')}
-          </button>
+          {(!user || formData.password) && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Confirmar Senha *
+              </label>
+              <input
+                type="password"
+                value={formData.confirmPassword}
+                onChange={(e) => handleChange('confirmPassword', e.target.value)}
+                className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
+                  errors.confirmPassword ? 'border-red-500' : 'border-gray-300'
+                }`}
+                placeholder="Digite a senha novamente"
+              />
+              {errors.confirmPassword && <p className="mt-1 text-sm text-red-600">{errors.confirmPassword}</p>}
+            </div>
+          )}
+
+          <div className="flex justify-end gap-3 pt-4 border-t">
+            <button
+              onClick={handleSubmit}
+              disabled={isSubmitting}
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors disabled:opacity-50 flex items-center gap-2"
+            >
+              {isSubmitting && (
+                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+              )}
+              <Save className="w-4 h-4" />
+              {isSubmitting ? 'Salvando...' : (user ? 'Atualizar' : 'Criar')}
+            </button>
+          </div>
         </div>
-      </form>
-    </Modal>
+      </div>
+    </div>
   );
 };
 
-export default AdminUsersPage;
-
+export default AdminUsersPage;={onClose}
+              disabled={isSubmitting}
+              className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors disabled:opacity-50"
+            >
+              Cancelar
+            </button>
+            <button
+              onClick
