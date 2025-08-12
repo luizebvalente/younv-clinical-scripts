@@ -41,24 +41,17 @@ const LoginForm = ({ onSuccess }) => {
     }
   };
 
-  const handleDemoLogin = async (email) => {
-    setIsLoading(true);
-    setError('');
-
-    try {
-      await login(email, '123456');
-      if (onSuccess) onSuccess();
-    } catch (error) {
-      setError(error.message);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
   return (
     <div className="w-full max-w-md mx-auto">
       <div className="bg-white shadow-lg rounded-lg p-8">
         <div className="text-center mb-8">
+          <div className="mb-6">
+            <img 
+              src="https://www.younv.com.br/wp-content/uploads/2022/08/Younv-Official.png" 
+              alt="Younv Logo" 
+              className="mx-auto h-16 w-auto"
+            />
+          </div>
           <h2 className="text-2xl font-bold text-gray-900">
             Entrar no Sistema
           </h2>
@@ -112,37 +105,9 @@ const LoginForm = ({ onSuccess }) => {
             {isLoading ? 'Entrando...' : 'Entrar'}
           </button>
         </form>
-
-        <div className="mt-8 pt-6 border-t border-gray-200">
-          <p className="text-sm text-gray-600 mb-4 text-center">
-            Contas de demonstração:
-          </p>
-          <div className="space-y-2">
-            <button
-              onClick={() => handleDemoLogin('luizebvalente@gmail.com')}
-              disabled={isLoading}
-              className="w-full text-left p-3 bg-gray-50 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50"
-            >
-              <div className="font-medium text-gray-900">Luiz Valente</div>
-              <div className="text-sm text-gray-600">luizebvalente@gmail.com</div>
-              <div className="text-xs text-blue-600">Admin - Clínica São Lucas</div>
-            </button>
-            
-            <button
-              onClick={() => handleDemoLogin('admin@younv.com.br')}
-              disabled={isLoading}
-              className="w-full text-left p-3 bg-gray-50 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50"
-            >
-              <div className="font-medium text-gray-900">Super Administrador</div>
-              <div className="text-sm text-gray-600">admin@younv.com.br</div>
-              <div className="text-xs text-purple-600">Super Admin - Sistema</div>
-            </button>
-          </div>
-        </div>
       </div>
     </div>
   );
 };
 
 export default LoginForm;
-
