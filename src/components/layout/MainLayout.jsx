@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { 
   Menu, 
@@ -22,13 +22,44 @@ const MainLayout = () => {
   const { user, userData, logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
+  const userMenuRef = useRef(null);
+
+  // Fechar menu do usuário ao clicar fora
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (userMenuRef.current && !userMenuRef.current.contains(event.target)) {
+        setUserMenuOpen(false);
+      }
+    };
+
+    if (userMenuOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [userMenuOpen]);
 
   const handleLogout = async () => {
     try {
+      console.log('🚪 Iniciando logout...');
+      
+      // Fechar o menu do usuário
+      setUserMenuOpen(false);
+      
+      // Executar logout
       await logout();
-      navigate('/login');
+      
+      console.log('✅ Logout realizado com sucesso');
+      
+      // Redirecionar para a página de login
+      navigate('/login', { replace: true });
     } catch (error) {
-      console.error('Logout error:', error);
+      console.error('❌ Erro ao fazer logout:', error);
+      
+      // Mesmo com erro, tentar redirecionar para login
+      navigate('/login', { replace: true });
     }
   };
 
@@ -111,7 +142,7 @@ const MainLayout = () => {
               </button>
 
               {/* User menu */}
-              <div className="relative">
+              <div className="relative" ref={userMenuRef}>
                 <button
                   className="flex items-center gap-3 p-2 rounded-md text-white hover:bg-blue-700 transition-colors"
                   onClick={() => setUserMenuOpen(!userMenuOpen)}
@@ -192,10 +223,7 @@ const MainLayout = () => {
                     <div className="border-t border-gray-100 py-1">
                       <button
                         className="flex items-center gap-3 w-full px-4 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors"
-                        onClick={() => {
-                          setUserMenuOpen(false);
-                          handleLogout();
-                        }}
+                        onClick={handleLogout}
                       >
                         <LogOut className="h-4 w-4" />
                         Sair
@@ -213,17 +241,8 @@ const MainLayout = () => {
           <Outlet />
         </main>
       </div>
-
-      {/* Click outside to close user menu */}
-      {userMenuOpen && (
-        <div 
-          className="fixed inset-0 z-40"
-          onClick={() => setUserMenuOpen(false)}
-        />
-      )}
     </div>
   );
 };
 
 export default MainLayout;
-
