@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import { 
   ArrowLeft, 
   Copy, 
@@ -16,7 +16,8 @@ import {
   Stethoscope,
   MessageCircle,
   Calendar,
-  FileText
+  FileText,
+  AlertCircle
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import scriptService from '../services/scriptService';
@@ -26,11 +27,13 @@ import { formatRelativeTime } from '../utils';
 const CategoryScriptsPage = () => {
   const { categoryId } = useParams();
   const { userData, hasPermission } = useAuth();
+  const navigate = useNavigate();
   const [scripts, setScripts] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [sortBy, setSortBy] = useState('recent');
   const [error, setError] = useState(null);
+  const [deletingScriptId, setDeletingScriptId] = useState(null);
 
   // Find category info
   const category = DEFAULT_CATEGORIES.find(cat => cat.id === categoryId);
@@ -68,9 +71,48 @@ const CategoryScriptsPage = () => {
   const handleCopyScript = async (script) => {
     try {
       await navigator.clipboard.writeText(script.content);
-      console.log('Script copiado para a área de transferência');
+      console.log('✅ Script copiado para a área de transferência');
+      // Aqui você pode adicionar um toast de sucesso
     } catch (err) {
-      console.error('Erro ao copiar script:', err);
+      console.error('❌ Erro ao copiar script:', err);
+      // Aqui você pode adicionar um toast de erro
+    }
+  };
+
+  const handleEditScript = (scriptId) => {
+    console.log('✏️ Navegando para editar script:', scriptId);
+    navigate(`/scripts/edit/${scriptId}`);
+  };
+
+  const handleDeleteScript = async (script) => {
+    // Confirmar exclusão
+    const confirmDelete = window.confirm(
+      `Tem certeza que deseja excluir o script "${script.title}"?\n\nEsta ação não pode ser desfeita.`
+    );
+
+    if (!confirmDelete) {
+      console.log('❌ Exclusão cancelada pelo usuário');
+      return;
+    }
+
+    try {
+      console.log('🗑️ Excluindo script:', script.id);
+      setDeletingScriptId(script.id);
+      
+      await scriptService.deleteScript(script.id);
+      
+      console.log('✅ Script excluído com sucesso');
+      
+      // Remover o script da lista local
+      setScripts(prevScripts => prevScripts.filter(s => s.id !== script.id));
+      
+      // Aqui você pode adicionar um toast de sucesso
+    } catch (error) {
+      console.error('❌ Erro ao excluir script:', error);
+      setError(`Erro ao excluir script: ${error.message}`);
+      // Aqui você pode adicionar um toast de erro
+    } finally {
+      setDeletingScriptId(null);
     }
   };
 
@@ -104,6 +146,34 @@ const CategoryScriptsPage = () => {
 
   const IconComponent = getIconComponent(category.icon);
 
+  // Filtrar scripts
+  const filteredScripts = scripts.filter(script => {
+    if (!searchTerm) return true;
+    const term = searchTerm.toLowerCase();
+    return (
+      script.title.toLowerCase().includes(term) ||
+      script.content.toLowerCase().includes(term) ||
+      (script.tags && script.tags.some(tag => tag.toLowerCase().includes(term)))
+    );
+  });
+
+  // Ordenar scripts
+  const sortedScripts = [...filteredScripts].sort((a, b) => {
+    switch (sortBy) {
+      case 'alphabetical':
+        return a.title.localeCompare(b.title);
+      case 'created':
+        const aTime = a.createdAt?.seconds ? a.createdAt.seconds : 0;
+        const bTime = b.createdAt?.seconds ? b.createdAt.seconds : 0;
+        return bTime - aTime;
+      case 'recent':
+      default:
+        const aUpdated = a.updatedAt?.seconds ? a.updatedAt.seconds : 0;
+        const bUpdated = b.updatedAt?.seconds ? b.updatedAt.seconds : 0;
+        return bUpdated - aUpdated;
+    }
+  });
+
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div className="space-y-6">
@@ -132,7 +202,7 @@ const CategoryScriptsPage = () => {
             </div>
           </div>
 
-          {hasPermission && hasPermission('admin') && (
+          {hasPermission && (hasPermission('admin') || hasPermission('super_admin')) && (
             <Link
               to="/scripts/create"
               className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
@@ -142,6 +212,28 @@ const CategoryScriptsPage = () => {
             </Link>
           )}
         </div>
+
+        {/* Error Display */}
+        {error && (
+          <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+            <div className="flex items-start gap-3">
+              <AlertCircle className="w-5 h-5 text-red-600 mt-0.5 flex-shrink-0" />
+              <div className="flex-1">
+                <h3 className="text-sm font-medium text-red-800 mb-1">Erro</h3>
+                <p className="text-sm text-red-700">{error}</p>
+              </div>
+              <button
+                onClick={() => setError(null)}
+                className="text-red-400 hover:text-red-600"
+              >
+                <span className="sr-only">Fechar</span>
+                <svg className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                </svg>
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Search and Filters */}
         <div className="bg-white rounded-lg shadow p-6">
@@ -172,7 +264,7 @@ const CategoryScriptsPage = () => {
           </div>
 
           <div className="mt-4 text-sm text-gray-600">
-            {isLoading ? 'Carregando...' : error ? `Erro: ${error}` : `${scripts.length} script(s) encontrado(s)`}
+            {isLoading ? 'Carregando...' : error ? `Erro: ${error}` : `${sortedScripts.length} script(s) encontrado(s)`}
           </div>
         </div>
 
@@ -186,10 +278,10 @@ const CategoryScriptsPage = () => {
                 <div className="h-4 bg-gray-200 rounded w-2/3"></div>
               </div>
             </div>
-          ) : error ? (
+          ) : error && sortedScripts.length === 0 ? (
             <div className="bg-white rounded-lg shadow p-8 text-center">
               <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                <IconComponent className="w-6 h-6 text-red-600" />
+                <AlertCircle className="w-6 h-6 text-red-600" />
               </div>
               <h3 className="text-lg font-medium text-gray-900 mb-2">
                 Erro ao carregar scripts
@@ -204,7 +296,7 @@ const CategoryScriptsPage = () => {
                 Tentar novamente
               </button>
             </div>
-          ) : scripts.length === 0 ? (
+          ) : sortedScripts.length === 0 ? (
             <div className="bg-white rounded-lg shadow p-8 text-center">
               <IconComponent className="w-12 h-12 text-gray-400 mx-auto mb-4" />
               <h3 className="text-lg font-medium text-gray-900 mb-2">
@@ -216,7 +308,7 @@ const CategoryScriptsPage = () => {
                   : 'Seja o primeiro a criar um script para esta categoria.'
                 }
               </p>
-              {hasPermission && hasPermission('admin') && !searchTerm && (
+              {hasPermission && (hasPermission('admin') || hasPermission('super_admin')) && !searchTerm && (
                 <Link
                   to="/scripts/create"
                   className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
@@ -227,7 +319,7 @@ const CategoryScriptsPage = () => {
               )}
             </div>
           ) : (
-            scripts.map((script) => (
+            sortedScripts.map((script) => (
               <div key={script.id} className="bg-white rounded-lg shadow p-6 hover:shadow-md transition-shadow">
                 <div className="flex items-start justify-between gap-4 mb-4">
                   <div className="flex-1">
@@ -250,25 +342,34 @@ const CategoryScriptsPage = () => {
                     <button
                       onClick={() => handleCopyScript(script)}
                       className="flex items-center gap-2 px-3 py-2 text-sm bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
+                      title="Copiar script"
                     >
                       <Copy className="w-4 h-4" />
                       Copiar
                     </button>
                     
-                    {hasPermission && hasPermission('admin') && (
+                    {hasPermission && (hasPermission('admin') || hasPermission('super_admin')) && (
                       <>
-                        <Link
-                          to={`/scripts/edit/${script.id}`}
+                        <button
+                          onClick={() => handleEditScript(script.id)}
                           className="p-2 text-gray-600 hover:text-blue-600 rounded-lg hover:bg-blue-50 transition-colors"
                           title="Editar script"
                         >
                           <Edit className="w-4 h-4" />
-                        </Link>
+                        </button>
                         <button 
-                          className="p-2 text-gray-600 hover:text-red-600 rounded-lg hover:bg-red-50 transition-colors"
+                          onClick={() => handleDeleteScript(script)}
+                          disabled={deletingScriptId === script.id}
+                          className={`p-2 text-gray-600 hover:text-red-600 rounded-lg hover:bg-red-50 transition-colors ${
+                            deletingScriptId === script.id ? 'opacity-50 cursor-not-allowed' : ''
+                          }`}
                           title="Excluir script"
                         >
-                          <Trash2 className="w-4 h-4" />
+                          {deletingScriptId === script.id ? (
+                            <div className="w-4 h-4 border-2 border-red-600 border-t-transparent rounded-full animate-spin" />
+                          ) : (
+                            <Trash2 className="w-4 h-4" />
+                          )}
                         </button>
                       </>
                     )}
@@ -310,4 +411,3 @@ const CategoryScriptsPage = () => {
 };
 
 export default CategoryScriptsPage;
-
