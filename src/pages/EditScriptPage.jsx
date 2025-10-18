@@ -7,7 +7,7 @@ import { ArrowLeft, AlertCircle } from 'lucide-react';
 
 const EditScriptPage = () => {
   const navigate = useNavigate();
-  const { id } = useParams();
+  const { scriptId } = useParams(); // CORRIGIDO: era 'id', agora é 'scriptId'
   const { user, userData } = useAuth();
   const [script, setScript] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -16,20 +16,20 @@ const EditScriptPage = () => {
 
   useEffect(() => {
     loadScript();
-  }, [id]);
+  }, [scriptId]);
 
   const loadScript = async () => {
     try {
       setIsLoading(true);
       setError(null);
       
-      console.log('📝 Carregando script para edição:', id);
+      console.log('📝 Carregando script para edição:', scriptId);
       
-      if (!id) {
+      if (!scriptId) {
         throw new Error('ID do script não fornecido');
       }
 
-      const scriptData = await scriptService.getScriptById(id);
+      const scriptData = await scriptService.getScriptById(scriptId);
       
       console.log('✅ Script carregado:', scriptData);
       
@@ -52,10 +52,10 @@ const EditScriptPage = () => {
       setIsSaving(true);
       setError(null);
       
-      console.log('💾 Salvando alterações do script:', id);
+      console.log('💾 Salvando alterações do script:', scriptId);
       console.log('Dados a serem salvos:', scriptData);
       
-      await scriptService.updateScript(id, scriptData);
+      await scriptService.updateScript(scriptId, scriptData);
       
       console.log('✅ Script atualizado com sucesso!');
       
@@ -71,7 +71,7 @@ const EditScriptPage = () => {
 
   const handleCancel = () => {
     console.log('❌ Edição cancelada, voltando...');
-    navigate(-1); // Voltar para a página anterior
+    navigate(-1);
   };
 
   // Verificar se o usuário tem permissão para editar scripts
