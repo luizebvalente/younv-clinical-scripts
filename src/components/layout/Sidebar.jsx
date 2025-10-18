@@ -1,5 +1,5 @@
 import React from 'react';
-import { NavLink, useLocation } from 'react-router-dom';
+import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { 
   X, 
   Home, 
@@ -24,6 +24,7 @@ import { DEFAULT_CATEGORIES } from '../../types';
 const Sidebar = ({ isOpen, onClose }) => {
   const { userData, hasPermission } = useAuth();
   const location = useLocation();
+  const navigate = useNavigate();
 
   const getIconComponent = (iconName) => {
     const icons = {
@@ -93,6 +94,13 @@ const Sidebar = ({ isOpen, onClose }) => {
     return location.pathname.startsWith(href);
   };
 
+  // CORRIGIDO: Função para criar novo script
+  const handleCreateScript = () => {
+    console.log('➕ Navegando para criar novo script');
+    navigate('/scripts/create');
+    if (onClose) onClose(); // Fechar sidebar no mobile
+  };
+
   return (
     <>
       {/* Sidebar */}
@@ -159,8 +167,12 @@ const Sidebar = ({ isOpen, onClose }) => {
               <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
                 Categorias
               </h3>
-              {hasPermission('admin') && (
-                <button className="p-1 rounded text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors">
+              {hasPermission && (hasPermission('admin') || hasPermission('super_admin')) && (
+                <button 
+                  onClick={handleCreateScript}
+                  className="p-1 rounded text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+                  title="Criar novo script"
+                >
                   <Plus className="h-4 w-4" />
                 </button>
               )}
@@ -246,4 +258,3 @@ const Sidebar = ({ isOpen, onClose }) => {
 };
 
 export default Sidebar;
-
