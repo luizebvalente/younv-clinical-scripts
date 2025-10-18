@@ -1,117 +1,148 @@
 import React, { useState, useEffect } from 'react';
-import { Search, Filter, Copy, Clock, Tag, ArrowRight } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Search, Filter, Copy, Clock, Tag, ArrowRight, Edit, Trash2, AlertCircle } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { DEFAULT_CATEGORIES } from '../types';
 import { formatRelativeTime } from '../utils';
+import scriptService from '../services/scriptService';
 
 const SearchPage = () => {
-  const { userData } = useAuth();
+  const { userData, hasPermission } = useAuth();
+  const navigate = useNavigate();
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('');
   const [filteredScripts, setFilteredScripts] = useState([]);
-  const [isLoading, setIsLoading] = useState(false);
+  const [allScripts, setAllScripts] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [deletingScriptId, setDeletingScriptId] = useState(null);
 
-  // Mock scripts data for demonstration
-  const mockScripts = [
-    {
-      id: '1',
-      title: 'Primeiro Contato - Telefone',
-      content: 'Olá! Bom dia/tarde/noite. Aqui é [NOME] da [CLÍNICA]. Como posso ajudá-lo(a) hoje?',
-      category: 'atendimento',
-      categoryName: 'Atendimento',
-      tags: ['telefone', 'primeiro contato', 'recepção'],
-      lastUsed: new Date(Date.now() - 2 * 60 * 60 * 1000),
-      createdAt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
-      isActive: true
-    },
-    {
-      id: '2',
-      title: 'Orientações Pré-Cirurgia',
-      content: 'Para sua cirurgia, é importante seguir estas orientações: 1) Jejum de 8 horas antes do procedimento...',
-      category: 'cirurgia',
-      categoryName: 'Cirurgia',
-      tags: ['pré-cirurgia', 'orientações', 'jejum'],
-      lastUsed: new Date(Date.now() - 4 * 60 * 60 * 1000),
-      createdAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000),
-      isActive: true
-    },
-    {
-      id: '3',
-      title: 'Follow-up Pós-Consulta',
-      content: 'Olá [NOME DO PACIENTE], como você está se sentindo após nossa consulta de ontem?',
-      category: 'follow-up',
-      categoryName: 'Follow-up',
-      tags: ['pós-consulta', 'acompanhamento', 'whatsapp'],
-      lastUsed: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000),
-      createdAt: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000),
-      isActive: true
-    },
-    {
-      id: '4',
-      title: 'Agendamento de Consulta',
-      content: 'Temos disponibilidade para [DATA] às [HORÁRIO]. Essa data funciona para você?',
-      category: 'agendamento',
-      categoryName: 'Agendamento',
-      tags: ['agendamento', 'horário', 'disponibilidade'],
-      lastUsed: new Date(Date.now() - 6 * 60 * 60 * 1000),
-      createdAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000),
-      isActive: true
-    },
-    {
-      id: '5',
-      title: 'Resposta a Objeção - Preço',
-      content: 'Entendo sua preocupação com o investimento. Vamos conversar sobre as opções de pagamento disponíveis...',
-      category: 'objecoes',
-      categoryName: 'Objeções',
-      tags: ['objeção', 'preço', 'pagamento'],
-      lastUsed: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000),
-      createdAt: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000),
-      isActive: true
-    }
-  ];
-
-  // Filter scripts based on search term and category
+  // Carregar scripts da clínica do usuário
   useEffect(() => {
-    setIsLoading(true);
-    
-    // Simulate API delay
-    const timer = setTimeout(() => {
-      let filtered = mockScripts.filter(script => script.isActive);
-
-      // Filter by search term
-      if (searchTerm) {
-        const term = searchTerm.toLowerCase();
-        filtered = filtered.filter(script => 
-          script.title.toLowerCase().includes(term) ||
-          script.content.toLowerCase().includes(term) ||
-          script.tags.some(tag => tag.toLowerCase().includes(term))
-        );
+    const loadScripts = async () => {
+      console.log('SearchPage - Carregando scripts da clínica', { 
+        clinicId: userData?.clinicId,
+        userEmail: userData?.email 
+      });
+      
+      if (!userData?.clinicId) {
+        console.log('SearchPage - Aguardando dados do usuário...');
+        return;
       }
 
-      // Filter by category
-      if (selectedCategory) {
-        filtered = filtered.filter(script => script.category === selectedCategory);
+      setIsLoading(true);
+      setError(null);
+
+      try {
+        // Buscar todos os scripts da clínica do usuário
+        const result = await scriptService.getScriptsByClinic(userData.clinicId, {
+          limitCount: 1000,
+          isActive: true
+        });
+
+        console.log('SearchPage - Scripts carregados:', result.scripts.length);
+        
+        // Enriquecer scripts com nome da categoria
+        const enrichedScripts = result.scripts.map(script => {
+          const category = DEFAULT_CATEGORIES.find(cat => cat.id === script.categoryId);
+          return {
+            ...script,
+            categoryName: category?.name || 'Sem categoria'
+          };
+        });
+
+        setAllScripts(enrichedScripts);
+        setFilteredScripts(enrichedScripts);
+      } catch (error) {
+        console.error('Erro ao carregar scripts:', error);
+        setError(error.message || 'Erro ao carregar scripts');
+      } finally {
+        setIsLoading(false);
       }
+    };
 
-      setFilteredScripts(filtered);
-      setIsLoading(false);
-    }, 300);
+    loadScripts();
+  }, [userData?.clinicId]);
 
-    return () => clearTimeout(timer);
-  }, [searchTerm, selectedCategory]);
+  // Filtrar scripts quando searchTerm ou selectedCategory mudar
+  useEffect(() => {
+    let filtered = [...allScripts];
+
+    // Filtrar por termo de busca
+    if (searchTerm.trim()) {
+      const term = searchTerm.toLowerCase();
+      filtered = filtered.filter(script => 
+        script.title.toLowerCase().includes(term) ||
+        script.content.toLowerCase().includes(term) ||
+        (script.tags && script.tags.some(tag => tag.toLowerCase().includes(term)))
+      );
+    }
+
+    // Filtrar por categoria
+    if (selectedCategory) {
+      filtered = filtered.filter(script => script.categoryId === selectedCategory);
+    }
+
+    console.log('SearchPage - Filtros aplicados:', {
+      searchTerm,
+      selectedCategory,
+      totalScripts: allScripts.length,
+      filteredScripts: filtered.length
+    });
+
+    setFilteredScripts(filtered);
+  }, [searchTerm, selectedCategory, allScripts]);
 
   const handleCopyScript = async (script) => {
     try {
       await navigator.clipboard.writeText(script.content);
-      // In a real app, you'd show a toast notification here
-      console.log('Script copiado para a área de transferência');
+      console.log('✅ Script copiado para a área de transferência');
+      // TODO: Adicionar toast de sucesso
     } catch (err) {
-      console.error('Erro ao copiar script:', err);
+      console.error('❌ Erro ao copiar script:', err);
+      // TODO: Adicionar toast de erro
+    }
+  };
+
+  const handleEditScript = (scriptId) => {
+    console.log('✏️ Navegando para editar script:', scriptId);
+    navigate(`/scripts/edit/${scriptId}`);
+  };
+
+  const handleDeleteScript = async (script) => {
+    const confirmDelete = window.confirm(
+      `Tem certeza que deseja excluir o script "${script.title}"?\n\nEsta ação não pode ser desfeita.`
+    );
+
+    if (!confirmDelete) {
+      console.log('❌ Exclusão cancelada pelo usuário');
+      return;
+    }
+
+    try {
+      console.log('🗑️ Excluindo script:', script.id);
+      setDeletingScriptId(script.id);
+      
+      await scriptService.deleteScript(script.id);
+      
+      console.log('✅ Script excluído com sucesso');
+      
+      // Remover o script das listas locais
+      setAllScripts(prevScripts => prevScripts.filter(s => s.id !== script.id));
+      setFilteredScripts(prevScripts => prevScripts.filter(s => s.id !== script.id));
+      
+      // TODO: Adicionar toast de sucesso
+    } catch (error) {
+      console.error('❌ Erro ao excluir script:', error);
+      setError(`Erro ao excluir script: ${error.message}`);
+      // TODO: Adicionar toast de erro
+    } finally {
+      setDeletingScriptId(null);
     }
   };
 
   const highlightText = (text, highlight) => {
-    if (!highlight) return text;
+    if (!highlight?.trim()) return text;
     
     const parts = text.split(new RegExp(`(${highlight})`, 'gi'));
     return parts.map((part, index) => 
@@ -129,13 +160,44 @@ const SearchPage = () => {
             Buscar Scripts
           </h1>
           <p className="text-gray-600 mt-1">
-            Encontre rapidamente o script que você precisa
+            Encontre rapidamente o script que você precisa na sua clínica
           </p>
         </div>
       </div>
 
+      {/* Informação da Clínica */}
+      {userData?.clinicName && (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+          <p className="text-sm text-blue-800">
+            <strong>Buscando em:</strong> {userData.clinicName}
+          </p>
+        </div>
+      )}
+
+      {/* Error Display */}
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+          <div className="flex items-start gap-3">
+            <AlertCircle className="w-5 h-5 text-red-600 mt-0.5 flex-shrink-0" />
+            <div className="flex-1">
+              <h3 className="text-sm font-medium text-red-800 mb-1">Erro</h3>
+              <p className="text-sm text-red-700">{error}</p>
+            </div>
+            <button
+              onClick={() => setError(null)}
+              className="text-red-400 hover:text-red-600"
+            >
+              <span className="sr-only">Fechar</span>
+              <svg className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+              </svg>
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Search and Filters */}
-      <div className="medical-card p-6">
+      <div className="bg-white rounded-lg shadow p-6">
         <div className="flex flex-col lg:flex-row gap-4">
           {/* Search Input */}
           <div className="flex-1 relative">
@@ -189,14 +251,12 @@ const SearchPage = () => {
       {/* Results */}
       <div className="space-y-4">
         {isLoading ? (
-          <div className="medical-card p-8 text-center">
-            <div className="animate-pulse">
-              <div className="h-4 bg-gray-200 rounded w-1/4 mx-auto mb-4"></div>
-              <div className="h-3 bg-gray-200 rounded w-1/2 mx-auto"></div>
-            </div>
+          <div className="bg-white rounded-lg shadow p-8 text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+            <p className="text-gray-600">Carregando scripts...</p>
           </div>
         ) : filteredScripts.length === 0 ? (
-          <div className="medical-card p-8 text-center">
+          <div className="bg-white rounded-lg shadow p-8 text-center">
             <Search className="w-12 h-12 text-gray-400 mx-auto mb-4" />
             <h3 className="text-lg font-medium text-gray-900 mb-2">
               {searchTerm || selectedCategory ? 'Nenhum script encontrado' : 'Digite algo para buscar'}
@@ -210,7 +270,7 @@ const SearchPage = () => {
           </div>
         ) : (
           filteredScripts.map((script) => (
-            <div key={script.id} className="medical-card p-6 hover:shadow-md transition-shadow">
+            <div key={script.id} className="bg-white rounded-lg shadow p-6 hover:shadow-md transition-shadow">
               <div className="flex items-start justify-between gap-4">
                 <div className="flex-1">
                   {/* Header */}
@@ -220,35 +280,68 @@ const SearchPage = () => {
                         {highlightText(script.title, searchTerm)}
                       </h3>
                       <div className="flex items-center gap-3 text-sm text-gray-500">
-                        <span className="clinic-badge">
+                        <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded-full text-xs">
                           {script.categoryName}
                         </span>
-                        <span className="flex items-center gap-1">
-                          <Clock className="w-4 h-4" />
-                          {formatRelativeTime(script.lastUsed)}
-                        </span>
+                        {script.updatedAt && (
+                          <span className="flex items-center gap-1">
+                            <Clock className="w-4 h-4" />
+                            {formatRelativeTime(script.updatedAt.toDate?.() || script.updatedAt)}
+                          </span>
+                        )}
                       </div>
                     </div>
                     
-                    <button
-                      onClick={() => handleCopyScript(script)}
-                      className="copy-button flex-shrink-0"
-                    >
-                      <Copy className="w-4 h-4" />
-                      Copiar
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => handleCopyScript(script)}
+                        className="flex items-center gap-2 px-3 py-2 text-sm bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
+                        title="Copiar script"
+                      >
+                        <Copy className="w-4 h-4" />
+                        Copiar
+                      </button>
+                      
+                      {hasPermission && (hasPermission('admin') || hasPermission('super_admin')) && (
+                        <>
+                          <button
+                            onClick={() => handleEditScript(script.id)}
+                            className="p-2 text-gray-600 hover:text-blue-600 rounded-lg hover:bg-blue-50 transition-colors"
+                            title="Editar script"
+                          >
+                            <Edit className="w-4 h-4" />
+                          </button>
+                          <button 
+                            onClick={() => handleDeleteScript(script)}
+                            disabled={deletingScriptId === script.id}
+                            className={`p-2 text-gray-600 hover:text-red-600 rounded-lg hover:bg-red-50 transition-colors ${
+                              deletingScriptId === script.id ? 'opacity-50 cursor-not-allowed' : ''
+                            }`}
+                            title="Excluir script"
+                          >
+                            {deletingScriptId === script.id ? (
+                              <div className="w-4 h-4 border-2 border-red-600 border-t-transparent rounded-full animate-spin" />
+                            ) : (
+                              <Trash2 className="w-4 h-4" />
+                            )}
+                          </button>
+                        </>
+                      )}
+                    </div>
                   </div>
 
                   {/* Content Preview */}
                   <div className="mb-4">
-                    <p className="text-gray-700 line-clamp-3">
-                      {highlightText(script.content, searchTerm)}
-                    </p>
+                    <div className="bg-gray-50 rounded-lg p-4 border-l-4 border-blue-500">
+                      <p className="text-gray-700 whitespace-pre-line line-clamp-3">
+                        {highlightText(script.content, searchTerm)}
+                      </p>
+                    </div>
                   </div>
 
                   {/* Tags */}
-                  {script.tags.length > 0 && (
-                    <div className="flex items-center gap-2 mb-3">
+                  {script.tags && script.tags.length > 0 && (
+                    <div className="flex items-center gap-2">
                       <Tag className="w-4 h-4 text-gray-400" />
                       <div className="flex flex-wrap gap-1">
                         {script.tags.map((tag, index) => (
@@ -263,14 +356,24 @@ const SearchPage = () => {
                     </div>
                   )}
 
-                  {/* Actions */}
-                  <div className="flex items-center justify-between">
+                  {/* Footer */}
+                  <div className="mt-4 pt-4 border-t border-gray-200 flex items-center justify-between">
                     <div className="text-xs text-gray-500">
-                      Criado em {script.createdAt.toLocaleDateString('pt-BR')}
+                      {script.createdAt && (
+                        <>
+                          Criado em {script.createdAt.toDate ? 
+                            script.createdAt.toDate().toLocaleDateString('pt-BR') : 
+                            new Date(script.createdAt).toLocaleDateString('pt-BR')
+                          }
+                        </>
+                      )}
                     </div>
                     
-                    <button className="text-blue-600 hover:text-blue-700 text-sm font-medium flex items-center gap-1">
-                      Ver detalhes
+                    <button 
+                      onClick={() => navigate(`/scripts/${script.categoryId}`)}
+                      className="text-blue-600 hover:text-blue-700 text-sm font-medium flex items-center gap-1"
+                    >
+                      Ver categoria
                       <ArrowRight className="w-4 h-4" />
                     </button>
                   </div>
@@ -285,4 +388,3 @@ const SearchPage = () => {
 };
 
 export default SearchPage;
-
