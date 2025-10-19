@@ -18,6 +18,30 @@ const ScriptForm = ({ onSubmit, onCancel, initialData = null, isLoading = false 
   
   const [tagInput, setTagInput] = useState('');
   const [errors, setErrors] = useState({});
+  const [categories, setCategories] = useState([]);
+  const [loadingCategories, setLoadingCategories] = useState(true);
+
+  // Carregar todas as categorias (padrão + customizadas)
+  useEffect(() => {
+    const loadCategories = async () => {
+      try {
+        setLoadingCategories(true);
+        const categoryService = (await import('../../services/categoryService')).default;
+        const allCategories = await categoryService.getAllCategoriesForUser();
+        setCategories(allCategories);
+      } catch (error) {
+        console.error('Erro ao carregar categorias:', error);
+        // Em caso de erro, usar apenas categorias padrão
+        setCategories(DEFAULT_CATEGORIES);
+      } finally {
+        setLoadingCategories(false);
+      }
+    };
+
+    if (userData) {
+      loadCategories();
+    }
+  }, [userData]);
 
   // Carregar dados iniciais quando o componente montar ou quando initialData mudar
   useEffect(() => {
@@ -131,21 +155,27 @@ const ScriptForm = ({ onSubmit, onCancel, initialData = null, isLoading = false 
         <label className="block text-sm font-medium text-gray-700 mb-2">
           Categoria *
         </label>
-        <select
-          value={formData.categoryId}
-          onChange={(e) => handleChange('categoryId', e.target.value)}
-          className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
-            errors.categoryId ? 'border-red-500' : 'border-gray-300'
-          }`}
-          disabled={isLoading}
-        >
-          <option value="">Selecione uma categoria</option>
-          {DEFAULT_CATEGORIES.map(category => (
-            <option key={category.id} value={category.id}>
-              {category.name}
-            </option>
-          ))}
-        </select>
+        {loadingCategories ? (
+          <div className="w-full px-4 py-3 border border-gray-300 rounded-lg bg-gray-50">
+            <p className="text-sm text-gray-500">Carregando categorias...</p>
+          </div>
+        ) : (
+          <select
+            value={formData.categoryId}
+            onChange={(e) => handleChange('categoryId', e.target.value)}
+            className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
+              errors.categoryId ? 'border-red-500' : 'border-gray-300'
+            }`}
+            disabled={isLoading}
+          >
+            <option value="">Selecione uma categoria</option>
+            {categories.map(category => (
+              <option key={category.id} value={category.id}>
+                {category.name} {category.isCustom ? '(Personalizada)' : ''}
+              </option>
+            ))}
+          </select>
+        )}
         {errors.categoryId && (
           <p className="mt-1 text-sm text-red-600">{errors.categoryId}</p>
         )}
