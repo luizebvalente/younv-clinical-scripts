@@ -61,6 +61,13 @@ const ManageCategoriesPage = () => {
     }
   };
 
+  // Função para notificar o sidebar sobre mudanças
+  const notifySidebarUpdate = () => {
+    console.log('📢 Disparando evento categoryUpdated');
+    const event = new CustomEvent('categoryUpdated');
+    window.dispatchEvent(event);
+  };
+
   const handleCreateCategory = () => {
     setEditingCategory(null);
     setShowModal(true);
@@ -89,6 +96,7 @@ const ManageCategoriesPage = () => {
       await categoryService.deleteCategory(category.firestoreId);
       showToast('success', `Categoria "${category.name}" excluída com sucesso!`);
       await loadCategories();
+      notifySidebarUpdate(); // Notificar sidebar
     } catch (error) {
       showToast('error', error.message);
     }
@@ -109,6 +117,7 @@ const ManageCategoriesPage = () => {
       
       setShowModal(false);
       await loadCategories();
+      notifySidebarUpdate(); // Notificar sidebar sobre a mudança
     } catch (error) {
       showToast('error', error.message);
     }
@@ -171,7 +180,7 @@ const ManageCategoriesPage = () => {
 
       {/* Toast */}
       {toast && (
-        <div className={`fixed top-4 right-4 z-50 px-6 py-3 rounded-lg shadow-lg flex items-center gap-2 ${
+        <div className={`fixed top-4 right-4 z-50 px-6 py-3 rounded-lg shadow-lg flex items-center gap-2 animate-slide-in ${
           toast.type === 'success' 
             ? 'bg-green-50 border border-green-200 text-green-800' 
             : 'bg-red-50 border border-red-200 text-red-800'
@@ -319,6 +328,24 @@ const ManageCategoriesPage = () => {
           onSave={handleSaveCategory}
         />
       )}
+
+      {/* Estilos para animação do toast */}
+      <style jsx>{`
+        @keyframes slide-in {
+          from {
+            transform: translateX(100%);
+            opacity: 0;
+          }
+          to {
+            transform: translateX(0);
+            opacity: 1;
+          }
+        }
+
+        .animate-slide-in {
+          animation: slide-in 0.3s ease-out;
+        }
+      `}</style>
     </div>
   );
 };
@@ -334,6 +361,19 @@ const CategoryModal = ({ category, onClose, onSave }) => {
   });
   const [errors, setErrors] = useState({});
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  React.useEffect(() => {
+    if (category) {
+      setFormData({
+        name: category.name || '',
+        description: category.description || '',
+        icon: category.icon || 'file-text',
+        color: category.color || '#3B82F6',
+        order: category.order || 999
+      });
+    }
+    setErrors({});
+  }, [category]);
 
   const validateForm = () => {
     const newErrors = {};
