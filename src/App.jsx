@@ -10,7 +10,6 @@ import SearchPage from './pages/SearchPage';
 import CategoryScriptsPage from './pages/CategoryScriptsPage';
 import CreateScriptPage from './pages/CreateScriptPage';
 import EditScriptPage from './pages/EditScriptPage';
-import ManageCategoriesPage from './pages/ManageCategoriesPage';
 import AdminDashboardPage from './pages/admin/AdminDashboardPage';
 import AdminScriptsPage from './pages/admin/AdminScriptsPage';
 import AdminClinicsPage from './pages/admin/AdminClinicsPage';
@@ -18,6 +17,22 @@ import AdminUsersPage from './pages/admin/AdminUsersPage';
 import AdminReportsPage from './pages/admin/AdminReportsPage';
 import initializationService from './services/initializationService';
 import './App.css';
+
+// Lazy load ManageCategoriesPage to avoid initial load issues
+const ManageCategoriesPage = React.lazy(() => 
+  import('./pages/ManageCategoriesPage').catch(() => ({
+    default: () => (
+      <div className="p-8 text-center">
+        <h1 className="text-2xl font-bold text-gray-900 mb-4">
+          Gerenciar Categorias
+        </h1>
+        <p className="text-gray-600">
+          Página em desenvolvimento. Por favor, tente novamente mais tarde.
+        </p>
+      </div>
+    )
+  }))
+);
 
 // Loading component
 const LoadingScreen = () => (
@@ -79,11 +94,11 @@ function App() {
       setNeedsSetup(needsInitialSetup);
       
       console.log('✅ Sistema inicializado com sucesso');
-      setIsInitializing(false);
       
     } catch (error) {
       console.error('❌ Erro na inicialização:', error);
       setInitError(error);
+    } finally {
       setIsInitializing(false);
     }
   };
@@ -117,86 +132,92 @@ function App() {
     <AuthProvider>
       <Router>
         <div className="App">
-          <Routes>
-            {/* Public routes */}
-            <Route path="/login" element={<LoginPage />} />
-            
-            {/* Protected routes */}
-            <Route path="/" element={
-              <ProtectedRoute>
-                <MainLayout />
-              </ProtectedRoute>
-            }>
-              {/* Dashboard */}
-              <Route index element={<Navigate to="/dashboard" replace />} />
-              <Route path="dashboard" element={<DashboardPage />} />
+          <React.Suspense fallback={
+            <div className="min-h-screen flex items-center justify-center">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+            </div>
+          }>
+            <Routes>
+              {/* Public routes */}
+              <Route path="/login" element={<LoginPage />} />
               
-              {/* Scripts routes */}
-              <Route path="scripts/:categoryId" element={<CategoryScriptsPage />} />
-              <Route path="scripts/create" element={
-                <ProtectedRoute requiredRole={['admin', 'super_admin']}>
-                  <CreateScriptPage />
+              {/* Protected routes */}
+              <Route path="/" element={
+                <ProtectedRoute>
+                  <MainLayout />
                 </ProtectedRoute>
-              } />
-              <Route path="scripts/edit/:scriptId" element={
-                <ProtectedRoute requiredRole={['admin', 'super_admin']}>
-                  <EditScriptPage />
-                </ProtectedRoute>
-              } />
+              }>
+                {/* Dashboard */}
+                <Route index element={<Navigate to="/dashboard" replace />} />
+                <Route path="dashboard" element={<DashboardPage />} />
+                
+                {/* Scripts routes */}
+                <Route path="scripts/:categoryId" element={<CategoryScriptsPage />} />
+                <Route path="scripts/create" element={
+                  <ProtectedRoute requiredRole={['admin', 'super_admin']}>
+                    <CreateScriptPage />
+                  </ProtectedRoute>
+                } />
+                <Route path="scripts/edit/:scriptId" element={
+                  <ProtectedRoute requiredRole={['admin', 'super_admin']}>
+                    <EditScriptPage />
+                  </ProtectedRoute>
+                } />
+                
+                {/* Search */}
+                <Route path="search" element={<SearchPage />} />
+                
+                {/* Categories Management */}
+                <Route path="categories/manage" element={
+                  <ProtectedRoute requiredRole={['admin', 'super_admin']}>
+                    <ManageCategoriesPage />
+                  </ProtectedRoute>
+                } />
+                
+                {/* Admin routes */}
+                <Route path="admin/*" element={
+                  <ProtectedRoute requiredRole={['admin', 'super_admin']}>
+                    <Routes>
+                      <Route index element={<AdminDashboardPage />} />
+                      <Route path="dashboard" element={<AdminDashboardPage />} />
+                      <Route path="scripts" element={<AdminScriptsPage />} />
+                      <Route path="clinics" element={<AdminClinicsPage />} />
+                      <Route path="users" element={<AdminUsersPage />} />
+                      <Route path="reports" element={<AdminReportsPage />} />
+                      <Route path="categories" element={<ManageCategoriesPage />} />
+                    </Routes>
+                  </ProtectedRoute>
+                } />
+                
+                {/* Settings */}
+                <Route path="settings" element={
+                  <div className="p-8 text-center">
+                    <h1 className="text-2xl font-bold text-gray-900 mb-4">
+                      Configurações
+                    </h1>
+                    <p className="text-gray-600">
+                      Esta página será implementada na próxima fase
+                    </p>
+                  </div>
+                } />
+                
+                {/* Profile */}
+                <Route path="profile" element={
+                  <div className="p-8 text-center">
+                    <h1 className="text-2xl font-bold text-gray-900 mb-4">
+                      Meu Perfil
+                    </h1>
+                    <p className="text-gray-600">
+                      Esta página será implementada na próxima fase
+                    </p>
+                  </div>
+                } />
+              </Route>
               
-              {/* Search */}
-              <Route path="search" element={<SearchPage />} />
-              
-              {/* Categories Management */}
-              <Route path="categories/manage" element={
-                <ProtectedRoute requiredRole={['admin', 'super_admin']}>
-                  <ManageCategoriesPage />
-                </ProtectedRoute>
-              } />
-              
-              {/* Admin routes */}
-              <Route path="admin/*" element={
-                <ProtectedRoute requiredRole={['admin', 'super_admin']}>
-                  <Routes>
-                    <Route index element={<AdminDashboardPage />} />
-                    <Route path="dashboard" element={<AdminDashboardPage />} />
-                    <Route path="scripts" element={<AdminScriptsPage />} />
-                    <Route path="clinics" element={<AdminClinicsPage />} />
-                    <Route path="users" element={<AdminUsersPage />} />
-                    <Route path="reports" element={<AdminReportsPage />} />
-                    <Route path="categories" element={<ManageCategoriesPage />} />
-                  </Routes>
-                </ProtectedRoute>
-              } />
-              
-              {/* Settings */}
-              <Route path="settings" element={
-                <div className="p-8 text-center">
-                  <h1 className="text-2xl font-bold text-gray-900 mb-4">
-                    Configurações
-                  </h1>
-                  <p className="text-gray-600">
-                    Esta página será implementada na próxima fase
-                  </p>
-                </div>
-              } />
-              
-              {/* Profile */}
-              <Route path="profile" element={
-                <div className="p-8 text-center">
-                  <h1 className="text-2xl font-bold text-gray-900 mb-4">
-                    Meu Perfil
-                  </h1>
-                  <p className="text-gray-600">
-                    Esta página será implementada na próxima fase
-                  </p>
-                </div>
-              } />
-            </Route>
-            
-            {/* Catch all - redirect to dashboard */}
-            <Route path="*" element={<Navigate to="/dashboard" replace />} />
-          </Routes>
+              {/* Catch all - redirect to dashboard */}
+              <Route path="*" element={<Navigate to="/dashboard" replace />} />
+            </Routes>
+          </React.Suspense>
         </div>
       </Router>
     </AuthProvider>
