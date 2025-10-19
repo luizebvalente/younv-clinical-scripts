@@ -8,7 +8,6 @@ import {
   Plus,
   Search,
   Filter,
-  Eye,
   Edit,
   Trash2,
   Phone,
@@ -34,9 +33,43 @@ const CategoryScriptsPage = () => {
   const [sortBy, setSortBy] = useState('recent');
   const [error, setError] = useState(null);
   const [deletingScriptId, setDeletingScriptId] = useState(null);
+  
+  // State for category
+  const [category, setCategory] = useState(null);
+  const [loadingCategory, setLoadingCategory] = useState(true);
 
-  // Find category info
-  const category = DEFAULT_CATEGORIES.find(cat => cat.id === categoryId);
+  // Load category (can be default or custom)
+  useEffect(() => {
+    const loadCategory = async () => {
+      setLoadingCategory(true);
+      try {
+        // First check if it's a default category
+        const defaultCategory = DEFAULT_CATEGORIES.find(cat => cat.id === categoryId);
+        
+        if (defaultCategory) {
+          setCategory(defaultCategory);
+        } else {
+          // If not default, try to load from categoryService
+          const categoryService = (await import('../services/categoryService')).default;
+          const allCategories = await categoryService.getAllCategoriesForUser();
+          const customCategory = allCategories.find(cat => cat.id === categoryId);
+          
+          if (customCategory) {
+            setCategory(customCategory);
+          } else {
+            setCategory(null);
+          }
+        }
+      } catch (error) {
+        console.error('Erro ao carregar categoria:', error);
+        setCategory(null);
+      } finally {
+        setLoadingCategory(false);
+      }
+    };
+
+    loadCategory();
+  }, [categoryId]);
 
   useEffect(() => {
     const loadScripts = async () => {
@@ -72,10 +105,8 @@ const CategoryScriptsPage = () => {
     try {
       await navigator.clipboard.writeText(script.content);
       console.log('✅ Script copiado para a área de transferência');
-      // Aqui você pode adicionar um toast de sucesso
     } catch (err) {
       console.error('❌ Erro ao copiar script:', err);
-      // Aqui você pode adicionar um toast de erro
     }
   };
 
@@ -85,32 +116,21 @@ const CategoryScriptsPage = () => {
   };
 
   const handleDeleteScript = async (script) => {
-    // Confirmar exclusão
     const confirmDelete = window.confirm(
       `Tem certeza que deseja excluir o script "${script.title}"?\n\nEsta ação não pode ser desfeita.`
     );
 
     if (!confirmDelete) {
-      console.log('❌ Exclusão cancelada pelo usuário');
       return;
     }
 
     try {
-      console.log('🗑️ Excluindo script:', script.id);
       setDeletingScriptId(script.id);
-      
       await scriptService.deleteScript(script.id);
-      
-      console.log('✅ Script excluído com sucesso');
-      
-      // Remover o script da lista local
       setScripts(prevScripts => prevScripts.filter(s => s.id !== script.id));
-      
-      // Aqui você pode adicionar um toast de sucesso
     } catch (error) {
       console.error('❌ Erro ao excluir script:', error);
       setError(`Erro ao excluir script: ${error.message}`);
-      // Aqui você pode adicionar um toast de erro
     } finally {
       setDeletingScriptId(null);
     }
@@ -127,6 +147,15 @@ const CategoryScriptsPage = () => {
     };
     return icons[iconName] || FileText;
   };
+
+  if (loadingCategory) {
+    return (
+      <div className="text-center py-12">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+        <p className="text-gray-600">Carregando categoria...</p>
+      </div>
+    );
+  }
 
   if (!category) {
     return (
@@ -188,12 +217,18 @@ const CategoryScriptsPage = () => {
           
           <div className="flex-1">
             <div className="flex items-center gap-3 mb-2">
-              <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
-                <IconComponent className="w-5 h-5 text-blue-600" />
+              <div 
+                className="w-10 h-10 rounded-lg flex items-center justify-center"
+                style={{ backgroundColor: category.color ? `${category.color}20` : '#3B82F620' }}
+              >
+                <IconComponent className="w-5 h-5" style={{ color: category.color || '#3B82F6' }} />
               </div>
               <div>
                 <h1 className="text-2xl font-bold text-gray-900">
                   {category.name}
+                  {category.isCustom && (
+                    <span className="ml-2 text-sm font-normal text-gray-500">(Personalizada)</span>
+                  )}
                 </h1>
                 <p className="text-gray-600">
                   {category.description}
@@ -264,7 +299,7 @@ const CategoryScriptsPage = () => {
           </div>
 
           <div className="mt-4 text-sm text-gray-600">
-            {isLoading ? 'Carregando...' : error ? `Erro: ${error}` : `${sortedScripts.length} script(s) encontrado(s)`}
+            {isLoading ? 'Carregando...' : `${sortedScripts.length} script(s) encontrado(s)`}
           </div>
         </div>
 
@@ -277,24 +312,6 @@ const CategoryScriptsPage = () => {
                 <div className="h-4 bg-gray-200 rounded w-full mb-2"></div>
                 <div className="h-4 bg-gray-200 rounded w-2/3"></div>
               </div>
-            </div>
-          ) : error && sortedScripts.length === 0 ? (
-            <div className="bg-white rounded-lg shadow p-8 text-center">
-              <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                <AlertCircle className="w-6 h-6 text-red-600" />
-              </div>
-              <h3 className="text-lg font-medium text-gray-900 mb-2">
-                Erro ao carregar scripts
-              </h3>
-              <p className="text-gray-600 mb-4">
-                {error}
-              </p>
-              <button
-                onClick={() => window.location.reload()}
-                className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-              >
-                Tentar novamente
-              </button>
             </div>
           ) : sortedScripts.length === 0 ? (
             <div className="bg-white rounded-lg shadow p-8 text-center">
