@@ -20,6 +20,7 @@ import {
   FolderPlus
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
+import { DEFAULT_CATEGORIES } from '../../types';
 import categoryService from '../../services/categoryService';
 
 const Sidebar = ({ isOpen, onClose }) => {
@@ -39,7 +40,6 @@ const Sidebar = ({ isOpen, onClose }) => {
       } catch (error) {
         console.error('Erro ao carregar categorias:', error);
         // Em caso de erro, usar categorias padrão
-        const { DEFAULT_CATEGORIES } = await import('../../types');
         setCategories(DEFAULT_CATEGORIES);
       } finally {
         setLoadingCategories(false);
@@ -48,6 +48,10 @@ const Sidebar = ({ isOpen, onClose }) => {
 
     if (userData) {
       loadCategories();
+    } else {
+      // Se não há userData, usar categorias padrão
+      setCategories(DEFAULT_CATEGORIES);
+      setLoadingCategories(false);
     }
   }, [userData]);
 
@@ -99,6 +103,12 @@ const Sidebar = ({ isOpen, onClose }) => {
       show: hasPermission('admin')
     },
     {
+      name: 'Categorias',
+      href: '/categories/manage',
+      icon: FolderPlus,
+      show: hasPermission('admin')
+    },
+    {
       name: 'Relatórios',
       href: '/admin/reports',
       icon: BarChart3,
@@ -119,7 +129,7 @@ const Sidebar = ({ isOpen, onClose }) => {
     return location.pathname.startsWith(href);
   };
 
-  // CORRIGIDO: Função para criar novo script
+  // Função para criar novo script
   const handleCreateScript = () => {
     console.log('➕ Navegando para criar novo script');
     navigate('/scripts/create');
@@ -202,35 +212,46 @@ const Sidebar = ({ isOpen, onClose }) => {
                 </button>
               )}
             </div>
-            <ul className="space-y-1">
-              {DEFAULT_CATEGORIES.map((category) => {
-                const Icon = getIconComponent(category.icon);
-                const href = `/scripts/${category.id}`;
-                return (
-                  <li key={category.id}>
-                    <NavLink
-                      to={href}
-                      className={({ isActive }) =>
-                        `flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                          isActive || isActiveLink(href)
-                            ? 'bg-blue-50 text-blue-700 border-r-2 border-blue-700'
-                            : 'text-gray-700 hover:bg-gray-100'
-                        }`
-                      }
-                      onClick={onClose}
-                    >
-                      <Icon className="h-5 w-5 flex-shrink-0" />
-                      <div className="flex-1">
-                        <div className="font-medium">{category.name}</div>
-                        <div className="text-xs text-gray-500 truncate">
-                          {category.description}
+            
+            {loadingCategories ? (
+              <div className="space-y-2">
+                {[1, 2, 3].map((i) => (
+                  <div key={i} className="animate-pulse">
+                    <div className="h-10 bg-gray-200 rounded-lg"></div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <ul className="space-y-1">
+                {categories.map((category) => {
+                  const Icon = getIconComponent(category.icon);
+                  const href = `/scripts/${category.id}`;
+                  return (
+                    <li key={category.id}>
+                      <NavLink
+                        to={href}
+                        className={({ isActive }) =>
+                          `flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                            isActive || isActiveLink(href)
+                              ? 'bg-blue-50 text-blue-700 border-r-2 border-blue-700'
+                              : 'text-gray-700 hover:bg-gray-100'
+                          }`
+                        }
+                        onClick={onClose}
+                      >
+                        <Icon className="h-5 w-5 flex-shrink-0" />
+                        <div className="flex-1">
+                          <div className="font-medium">{category.name}</div>
+                          <div className="text-xs text-gray-500 truncate">
+                            {category.description}
+                          </div>
                         </div>
-                      </div>
-                    </NavLink>
-                  </li>
-                );
-              })}
-            </ul>
+                      </NavLink>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
           </div>
 
           {/* Admin Section */}
