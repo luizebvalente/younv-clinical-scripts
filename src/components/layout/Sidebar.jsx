@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { 
   X, 
@@ -16,15 +16,40 @@ import {
   Shield,
   BarChart3,
   Search,
-  Plus
+  Plus,
+  FolderPlus
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
-import { DEFAULT_CATEGORIES } from '../../types';
+import categoryService from '../../services/categoryService';
 
 const Sidebar = ({ isOpen, onClose }) => {
   const { userData, hasPermission } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
+  const [categories, setCategories] = useState([]);
+  const [loadingCategories, setLoadingCategories] = useState(true);
+
+  // Carregar categorias (padrão + customizadas)
+  useEffect(() => {
+    const loadCategories = async () => {
+      try {
+        setLoadingCategories(true);
+        const allCategories = await categoryService.getAllCategoriesForUser();
+        setCategories(allCategories);
+      } catch (error) {
+        console.error('Erro ao carregar categorias:', error);
+        // Em caso de erro, usar categorias padrão
+        const { DEFAULT_CATEGORIES } = await import('../../types');
+        setCategories(DEFAULT_CATEGORIES);
+      } finally {
+        setLoadingCategories(false);
+      }
+    };
+
+    if (userData) {
+      loadCategories();
+    }
+  }, [userData]);
 
   const getIconComponent = (iconName) => {
     const icons = {
