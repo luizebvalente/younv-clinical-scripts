@@ -19,9 +19,10 @@ import {
   Plus,
   FolderPlus
 } from 'lucide-react';
-import { useAuth } from '../contexts/AuthContext';
-import { DEFAULT_CATEGORIES } from '../types';
-import categoryService from '../services/categoryService';
+import { useAuth } from '../../contexts/AuthContext';
+import { DEFAULT_CATEGORIES } from '../../types';
+import categoryService from '../../services/categoryService';
+
 
 const Sidebar = ({ isOpen, onClose }) => {
   const { userData, hasPermission } = useAuth();
