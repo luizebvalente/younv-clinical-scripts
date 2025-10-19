@@ -10,6 +10,7 @@ import SearchPage from './pages/SearchPage';
 import CategoryScriptsPage from './pages/CategoryScriptsPage';
 import CreateScriptPage from './pages/CreateScriptPage';
 import EditScriptPage from './pages/EditScriptPage';
+import ManageCategoriesPage from './pages/ManageCategoriesPage';
 import AdminDashboardPage from './pages/admin/AdminDashboardPage';
 import AdminScriptsPage from './pages/admin/AdminScriptsPage';
 import AdminClinicsPage from './pages/admin/AdminClinicsPage';
@@ -143,7 +144,15 @@ function App() {
                 </ProtectedRoute>
               } />
               
+              {/* Search */}
               <Route path="search" element={<SearchPage />} />
+              
+              {/* Categories Management */}
+              <Route path="categories/manage" element={
+                <ProtectedRoute requiredRole={['admin', 'super_admin']}>
+                  <ManageCategoriesPage />
+                </ProtectedRoute>
+              } />
               
               {/* Admin routes */}
               <Route path="admin/*" element={
@@ -155,6 +164,7 @@ function App() {
                     <Route path="clinics" element={<AdminClinicsPage />} />
                     <Route path="users" element={<AdminUsersPage />} />
                     <Route path="reports" element={<AdminReportsPage />} />
+                    <Route path="categories" element={<ManageCategoriesPage />} />
                   </Routes>
                 </ProtectedRoute>
               } />
@@ -194,4 +204,3 @@ function App() {
 }
 
 export default App;
-
