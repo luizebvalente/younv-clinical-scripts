@@ -184,7 +184,7 @@ class ScriptService {
   }
 
   // Get scripts by category
-  async getScriptsByCategory(categoryId, clinicId) {
+  async getScriptsByCategory(categoryId, clinicId, sortBy = 'order') {
     try {
       if (!categoryId) {
         throw new Error('ID da categoria é obrigatório');
@@ -194,32 +194,68 @@ class ScriptService {
         throw new Error('ID da clínica é obrigatório');
       }
 
-      console.log('🔍 Buscando scripts por categoria:', { categoryId, clinicId });
+      console.log('🔍 Buscando scripts por categoria:', { categoryId, clinicId, sortBy });
       
       if (!authService.canAccessClinic(clinicId)) {
         console.log('❌ Acesso negado à clínica:', clinicId);
         throw new Error('Acesso negado a esta clínica.');
       }
 
+      // Buscar todos os scripts da categoria sem ordenação do Firestore
       const q = query(
         collection(db, this.collectionName),
         where('categoryId', '==', categoryId),
         where('clinicId', '==', clinicId),
-        where('isActive', '==', true),
-        orderBy('title')
+        where('isActive', '==', true)
       );
       
       const querySnapshot = await getDocs(q);
-      const scripts = [];
+      let scripts = [];
       
       querySnapshot.forEach((doc) => {
+        const data = doc.data();
         scripts.push({
           id: doc.id,
-          ...doc.data()
+          ...data,
+          // Garantir que order existe
+          order: data.order ?? 999999
         });
       });
       
-      console.log('✅ Scripts por categoria encontrados:', scripts.length);
+      // Aplicar ordenação em memória
+      switch (sortBy) {
+        case 'order':
+          scripts.sort((a, b) => {
+            const orderDiff = a.order - b.order;
+            // Se as ordens forem iguais, ordenar por título
+            return orderDiff !== 0 ? orderDiff : a.title.localeCompare(b.title);
+          });
+          break;
+        case 'alphabetical':
+          scripts.sort((a, b) => a.title.localeCompare(b.title));
+          break;
+        case 'created':
+          scripts.sort((a, b) => {
+            const aTime = a.createdAt?.toMillis?.() || 0;
+            const bTime = b.createdAt?.toMillis?.() || 0;
+            return bTime - aTime; // Mais recente primeiro
+          });
+          break;
+        case 'recent':
+          scripts.sort((a, b) => {
+            const aTime = a.updatedAt?.toMillis?.() || 0;
+            const bTime = b.updatedAt?.toMillis?.() || 0;
+            return bTime - aTime; // Mais recente primeiro
+          });
+          break;
+        default:
+          scripts.sort((a, b) => {
+            const orderDiff = a.order - b.order;
+            return orderDiff !== 0 ? orderDiff : a.title.localeCompare(b.title);
+          });
+      }
+      
+      console.log('✅ Scripts por categoria encontrados:', scripts.length, 'ordenados por:', sortBy);
       return scripts;
     } catch (error) {
       console.error('❌ Erro ao buscar scripts por categoria:', error);
