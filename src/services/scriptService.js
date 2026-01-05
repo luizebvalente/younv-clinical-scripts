@@ -11,7 +11,8 @@ import {
   orderBy,
   serverTimestamp,
   limit,
-  startAfter
+  startAfter,
+  writeBatch
 } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import authService from './authService';
@@ -70,6 +71,7 @@ class ScriptService {
         tags: scriptData.tags || [],
         steps: scriptData.steps || [],
         isTemplate: scriptData.isTemplate || false,
+        order: scriptData.order ?? 999999, // Default order no final
         usage: {
           totalViews: 0,
           totalUses: 0,
@@ -382,6 +384,52 @@ class ScriptService {
     }
   }
 
+  // Reorder scripts within a category
+  async reorderScripts(categoryId, clinicId, scriptIds) {
+    try {
+      if (!categoryId) {
+        throw new Error('ID da categoria é obrigatório');
+      }
+
+      if (!clinicId) {
+        throw new Error('ID da clínica é obrigatório');
+      }
+
+      if (!Array.isArray(scriptIds) || scriptIds.length === 0) {
+        throw new Error('Lista de IDs de scripts é obrigatória');
+      }
+
+      if (!authService.hasPermission(['admin', 'super_admin'])) {
+        throw new Error('Acesso negado. Apenas administradores podem reordenar scripts.');
+      }
+
+      if (!authService.canAccessClinic(clinicId)) {
+        throw new Error('Acesso negado a esta clínica.');
+      }
+
+      console.log('🔄 Reordenando scripts:', { categoryId, clinicId, count: scriptIds.length });
+
+      const batch = writeBatch(db);
+      
+      // Atualizar a ordem de cada script
+      scriptIds.forEach((scriptId, index) => {
+        const scriptRef = doc(db, this.collectionName, scriptId);
+        batch.update(scriptRef, { 
+          order: index,
+          updatedAt: serverTimestamp()
+        });
+      });
+      
+      await batch.commit();
+      
+      console.log('✅ Scripts reordenados com sucesso');
+      return { success: true };
+    } catch (error) {
+      console.error('❌ Erro ao reordenar scripts:', error);
+      throw error;
+    }
+  }
+
   // Get script statistics
   async getScriptStats(clinicId) {
     try {
@@ -429,4 +477,3 @@ class ScriptService {
 }
 
 export default new ScriptService();
-
