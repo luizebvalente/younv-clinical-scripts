@@ -17,6 +17,10 @@ import {
 import { db } from '../lib/firebase';
 import authService from './authService';
 
+// Scripts criados antes da ordenação personalizada não têm `order`; eles ficam
+// no fim da lista até a primeira reordenação salva.
+const DEFAULT_SCRIPT_ORDER = 999999;
+
 class ScriptService {
   constructor() {
     this.collectionName = 'scripts';
@@ -59,6 +63,13 @@ class ScriptService {
 
       console.log('📝 Criando script:', scriptData.title);
 
+      // Novo script entra no fim da ordem personalizada da categoria.
+      // Usar um valor fixo faria varios scripts empatarem e o desempate por titulo
+      // inseriria o novo script no meio da lista.
+      const order = Number.isFinite(scriptData.order)
+        ? scriptData.order
+        : await this.getNextOrder(scriptData.categoryId, scriptData.clinicId);
+
       const script = {
         title: scriptData.title.trim(),
         content: scriptData.content.trim(),
@@ -71,7 +82,7 @@ class ScriptService {
         tags: scriptData.tags || [],
         steps: scriptData.steps || [],
         isTemplate: scriptData.isTemplate || false,
-        order: scriptData.order ?? 999999, // Default order no final
+        order,
         usage: {
           totalViews: 0,
           totalUses: 0,
@@ -218,7 +229,7 @@ class ScriptService {
           id: doc.id,
           ...data,
           // Garantir que order existe
-          order: data.order ?? 999999
+          order: Number.isFinite(data.order) ? data.order : DEFAULT_SCRIPT_ORDER
         });
       });
       
@@ -335,6 +346,12 @@ class ScriptService {
         updatedAt: serverTimestamp()
       };
 
+      // Ao mover o script para outra categoria ele precisa entrar no fim da nova
+      // ordem; herdar o `order` da categoria de origem o joga no meio da lista.
+      if (updateData.categoryId && updateData.categoryId !== script.categoryId) {
+        updatedData.order = await this.getNextOrder(updateData.categoryId, script.clinicId);
+      }
+
       // Limpar campos vazios
       Object.keys(updatedData).forEach(key => {
         if (updatedData[key] === undefined || updatedData[key] === null) {
@@ -420,6 +437,27 @@ class ScriptService {
     }
   }
 
+  // Proxima posicao livre na ordem personalizada de uma categoria
+  async getNextOrder(categoryId, clinicId) {
+    const q = query(
+      collection(db, this.collectionName),
+      where('categoryId', '==', categoryId),
+      where('clinicId', '==', clinicId),
+      where('isActive', '==', true)
+    );
+
+    const querySnapshot = await getDocs(q);
+    let maxOrder = -1;
+
+    querySnapshot.forEach((docSnap) => {
+      const value = docSnap.data().order;
+      const order = Number.isFinite(value) ? value : DEFAULT_SCRIPT_ORDER;
+      if (order > maxOrder) maxOrder = order;
+    });
+
+    return maxOrder + 1;
+  }
+
   // Reorder scripts within a category
   async reorderScripts(categoryId, clinicId, scriptIds) {
     try {
@@ -435,6 +473,10 @@ class ScriptService {
         throw new Error('Lista de IDs de scripts é obrigatória');
       }
 
+      if (new Set(scriptIds).size !== scriptIds.length) {
+        throw new Error('Lista de IDs de scripts contém duplicatas.');
+      }
+
       if (!authService.hasPermission(['admin', 'super_admin'])) {
         throw new Error('Acesso negado. Apenas administradores podem reordenar scripts.');
       }
@@ -445,21 +487,54 @@ class ScriptService {
 
       console.log('🔄 Reordenando scripts:', { categoryId, clinicId, count: scriptIds.length });
 
-      const batch = writeBatch(db);
-      
-      // Atualizar a ordem de cada script
-      scriptIds.forEach((scriptId, index) => {
-        const scriptRef = doc(db, this.collectionName, scriptId);
-        batch.update(scriptRef, { 
-          order: index,
-          updatedAt: serverTimestamp()
+      // A lista precisa cobrir exatamente os scripts ativos da categoria. Salvar uma
+      // lista parcial (ex.: vinda de uma busca) reescreveria a ordem dos scripts que
+      // ficaram de fora e embaralharia a categoria inteira.
+      const currentScripts = await this.getScriptsByCategory(categoryId, clinicId, 'order');
+      const currentById = new Map(currentScripts.map(script => [script.id, script]));
+
+      const unknownIds = scriptIds.filter(scriptId => !currentById.has(scriptId));
+      if (unknownIds.length > 0) {
+        throw new Error(
+          `Não foi possível salvar a ordem: ${unknownIds.length} script(s) não pertencem a esta categoria.`
+        );
+      }
+
+      if (scriptIds.length !== currentScripts.length) {
+        throw new Error(
+          `A lista enviada tem ${scriptIds.length} script(s), mas a categoria tem ${currentScripts.length}. ` +
+          'Recarregue a página e refaça a ordenação.'
+        );
+      }
+
+      // Grava apenas o que realmente mudou de posição
+      const changes = scriptIds
+        .map((scriptId, index) => ({ scriptId, index }))
+        .filter(({ scriptId, index }) => currentById.get(scriptId).order !== index);
+
+      if (changes.length === 0) {
+        console.log('✅ Ordem já estava atualizada');
+        return { success: true, updated: 0 };
+      }
+
+      // writeBatch aceita no máximo 500 operações por commit
+      const BATCH_LIMIT = 450;
+      for (let i = 0; i < changes.length; i += BATCH_LIMIT) {
+        const batch = writeBatch(db);
+
+        changes.slice(i, i + BATCH_LIMIT).forEach(({ scriptId, index }) => {
+          const scriptRef = doc(db, this.collectionName, scriptId);
+          // `updatedAt` NÃO é tocado aqui: reordenar não é editar conteúdo e
+          // carimbar todos os scripts derrubaria a ordenação por "Mais recentes"
+          // no dashboard, na busca e na administração.
+          batch.update(scriptRef, { order: index });
         });
-      });
-      
-      await batch.commit();
-      
-      console.log('✅ Scripts reordenados com sucesso');
-      return { success: true };
+
+        await batch.commit();
+      }
+
+      console.log('✅ Scripts reordenados com sucesso:', changes.length, 'de', scriptIds.length);
+      return { success: true, updated: changes.length };
     } catch (error) {
       console.error('❌ Erro ao reordenar scripts:', error);
       throw error;

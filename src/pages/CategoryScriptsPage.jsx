@@ -44,6 +44,16 @@ const CategoryScriptsPage = () => {
   const [category, setCategory] = useState(null);
   const [loadingCategory, setLoadingCategory] = useState(true);
 
+  const isAdmin = Boolean(
+    hasPermission && (hasPermission('admin') || hasPermission('super_admin'))
+  );
+
+  // A reordenacao so e valida quando a lista renderizada e exatamente a lista em
+  // memoria: ordem personalizada e sem busca ativa. Com filtro, o indice da lista
+  // exibida nao corresponde ao indice em `scripts` e as setas trocariam os scripts
+  // errados -- embaralhando a categoria inteira ao salvar.
+  const canReorder = isAdmin && sortBy === 'order' && !searchTerm.trim();
+
   // Load category (can be default or custom)
   useEffect(() => {
     const loadCategory = async () => {
@@ -91,10 +101,11 @@ const CategoryScriptsPage = () => {
       
       try {
         console.log('CategoryScriptsPage - Buscando scripts...', { categoryId, clinicId: userData.clinicId });
-        const result = await scriptService.getScriptsByCategory(categoryId, userData.clinicId);
+        const result = await scriptService.getScriptsByCategory(categoryId, userData.clinicId, 'order');
         console.log('CategoryScriptsPage - Scripts encontrados:', result);
         
         setScripts(result || []);
+        setHasUnsavedChanges(false);
       } catch (error) {
         console.error('Erro ao carregar scripts:', error);
         setError(error.message);
@@ -106,6 +117,19 @@ const CategoryScriptsPage = () => {
 
     loadScripts();
   }, [categoryId, userData?.clinicId]);
+
+  // Evita perder silenciosamente uma ordem montada e nao salva
+  useEffect(() => {
+    if (!hasUnsavedChanges) return;
+
+    const handleBeforeUnload = (event) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [hasUnsavedChanges]);
 
   const handleCopyScript = async (script) => {
     try {
@@ -142,34 +166,42 @@ const CategoryScriptsPage = () => {
     }
   };
 
-  // Mover script para cima na ordem
-  const handleMoveUp = (index) => {
-    if (index === 0) return; // Já está no topo
-    
-    const newScripts = [...scripts];
-    const temp = newScripts[index];
-    newScripts[index] = newScripts[index - 1];
-    newScripts[index - 1] = temp;
-    
-    setScripts(newScripts);
+  // Move um script pela identidade, nunca pelo indice da lista renderizada.
+  const moveScript = (scriptId, direction) => {
+    const from = scripts.findIndex(script => script.id === scriptId);
+    const to = from + direction;
+
+    if (from === -1 || to < 0 || to >= scripts.length) return;
+
+    setScripts(prevScripts => {
+      const fromIndex = prevScripts.findIndex(script => script.id === scriptId);
+      const toIndex = fromIndex + direction;
+
+      if (fromIndex === -1 || toIndex < 0 || toIndex >= prevScripts.length) {
+        return prevScripts;
+      }
+
+      const newScripts = [...prevScripts];
+      [newScripts[fromIndex], newScripts[toIndex]] = [newScripts[toIndex], newScripts[fromIndex]];
+      return newScripts;
+    });
+
     setHasUnsavedChanges(true);
   };
 
+  // Mover script para cima na ordem
+  const handleMoveUp = (scriptId) => moveScript(scriptId, -1);
+
   // Mover script para baixo na ordem
-  const handleMoveDown = (index) => {
-    if (index === scripts.length - 1) return; // Já está no final
-    
-    const newScripts = [...scripts];
-    const temp = newScripts[index];
-    newScripts[index] = newScripts[index + 1];
-    newScripts[index + 1] = temp;
-    
-    setScripts(newScripts);
-    setHasUnsavedChanges(true);
-  };
+  const handleMoveDown = (scriptId) => moveScript(scriptId, 1);
 
   // Salvar nova ordem dos scripts
   const handleSaveOrder = async () => {
+    if (!canReorder) {
+      setError('Limpe a busca e selecione "Ordem personalizada" antes de salvar a ordem.');
+      return;
+    }
+
     try {
       setIsReordering(true);
       setError(null);
@@ -184,7 +216,7 @@ const CategoryScriptsPage = () => {
       setHasUnsavedChanges(false);
       
       // Recarregar scripts para garantir sincronização
-      const result = await scriptService.getScriptsByCategory(categoryId, userData.clinicId);
+      const result = await scriptService.getScriptsByCategory(categoryId, userData.clinicId, 'order');
       setScripts(result || []);
     } catch (error) {
       console.error('❌ Erro ao salvar ordem:', error);
@@ -199,7 +231,7 @@ const CategoryScriptsPage = () => {
     try {
       setIsReordering(true);
       // Recarregar scripts da ordem original
-      const result = await scriptService.getScriptsByCategory(categoryId, userData.clinicId);
+      const result = await scriptService.getScriptsByCategory(categoryId, userData.clinicId, 'order');
       setScripts(result || []);
       setHasUnsavedChanges(false);
     } catch (error) {
@@ -260,12 +292,9 @@ const CategoryScriptsPage = () => {
     );
   });
 
-  // Ordenar scripts
+  // Ordenar scripts ('order' ja vem ordenado do servico, mantem a lista em memoria)
   const sortedScripts = [...filteredScripts].sort((a, b) => {
     switch (sortBy) {
-      case 'order':
-        // Ordem personalizada (usando índice do array)
-        return 0; // Mantém ordem atual
       case 'alphabetical':
         return a.title.localeCompare(b.title);
       case 'created':
@@ -317,7 +346,7 @@ const CategoryScriptsPage = () => {
             </div>
           </div>
 
-          {hasPermission && (hasPermission('admin') || hasPermission('super_admin')) && (
+          {isAdmin && (
             <Link
               to="/scripts/create"
               className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
@@ -422,9 +451,14 @@ const CategoryScriptsPage = () => {
 
           <div className="mt-4 text-sm text-gray-600">
             {isLoading ? 'Carregando...' : `${displayScripts.length} script(s) encontrado(s)`}
-            {sortBy === 'order' && hasPermission && (hasPermission('admin') || hasPermission('super_admin')) && (
+            {canReorder && (
               <span className="ml-2 text-blue-600">
                 • Use as setas para reordenar os scripts
+              </span>
+            )}
+            {isAdmin && sortBy === 'order' && searchTerm.trim() && (
+              <span className="ml-2 text-amber-600">
+                • Limpe a busca para reordenar os scripts
               </span>
             )}
           </div>
@@ -452,7 +486,7 @@ const CategoryScriptsPage = () => {
                   : 'Seja o primeiro a criar um script para esta categoria.'
                 }
               </p>
-              {hasPermission && (hasPermission('admin') || hasPermission('super_admin')) && !searchTerm && (
+              {isAdmin && !searchTerm && (
                 <Link
                   to="/scripts/create"
                   className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
@@ -467,11 +501,11 @@ const CategoryScriptsPage = () => {
               <div key={script.id} className="bg-white rounded-lg shadow p-6 hover:shadow-md transition-shadow">
                 <div className="flex items-start gap-4">
                   {/* Drag Handle e Setas de Ordenação */}
-                  {sortBy === 'order' && hasPermission && (hasPermission('admin') || hasPermission('super_admin')) && (
+                  {canReorder && (
                     <div className="flex flex-col items-center gap-1 pt-1">
                       <GripVertical className="w-5 h-5 text-gray-400 cursor-move" />
                       <button
-                        onClick={() => handleMoveUp(index)}
+                        onClick={() => handleMoveUp(script.id)}
                         disabled={index === 0 || isReordering}
                         className={`p-1 rounded hover:bg-gray-100 transition-colors ${
                           index === 0 ? 'opacity-30 cursor-not-allowed' : 'text-blue-600 hover:text-blue-700'
@@ -481,7 +515,7 @@ const CategoryScriptsPage = () => {
                         <ArrowUp className="w-4 h-4" />
                       </button>
                       <button
-                        onClick={() => handleMoveDown(index)}
+                        onClick={() => handleMoveDown(script.id)}
                         disabled={index === displayScripts.length - 1 || isReordering}
                         className={`p-1 rounded hover:bg-gray-100 transition-colors ${
                           index === displayScripts.length - 1 ? 'opacity-30 cursor-not-allowed' : 'text-blue-600 hover:text-blue-700'
@@ -522,7 +556,7 @@ const CategoryScriptsPage = () => {
                           Copiar
                         </button>
                         
-                        {hasPermission && (hasPermission('admin') || hasPermission('super_admin')) && (
+                        {isAdmin && (
                           <>
                             <button
                               onClick={() => handleEditScript(script.id)}
